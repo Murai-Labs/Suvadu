@@ -1,0 +1,41 @@
+# Phase 0 locked versions — the CPU-side authoring environment only.
+#
+# SCOPE WARNING: this records the Windows workstation where the scaffolding, provenance writer
+# and config contract were authored and tested. It is NOT the training environment. Training
+# runs on aarch64 GB10 nodes whose stack is pinned separately in configs/phase1/env-report.md
+# once TASK P1.001 verifies it. Do not treat this file as evidence that anything works on Spark.
+#
+# Recorded 2026-08-16 from a live interpreter, not from memory.
+
+schema_version: 1
+phase: 0
+recorded: "2026-08-16"
+
+authoring_environment:
+  python: "3.13.14"
+  platform: "Windows-11-10.0.26200-SP0"
+  machine: "AMD64"
+
+  packages:
+    pyyaml: "6.0.3"
+    pytest: "8.4.2"
+
+  verified_by:
+    - "python -m compileall -q src"
+    - "python -m pytest -q  # 39 passed"
+
+training_environment:
+  status: "UNVERIFIED"
+  blocking_task: "P1.001"
+  target:
+    machine: "aarch64"
+    accelerator: "NVIDIA GB10"
+    compute_capability: "sm_121"
+  expected_constraints:
+    - "transformers v5+ is required for the qwen3_5 model family (per Unsloth docs, unverified here)"
+    - "Unsloth v0.1.800-beta advertises Qwen3.8-27B fine-tuning support (unverified on aarch64)"
+    - "ML on Spark is container-first; aarch64 + Blackwell wheels are unreliable"
+  note: >
+    Every entry under training_environment is an expectation drawn from vendor documentation
+    read on 2026-08-16, not a measurement taken on this hardware. P1.001 replaces this block
+    with pinned image digests and pasted command output.

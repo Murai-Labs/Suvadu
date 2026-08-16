@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "suvadu"
+version = "0.1.0"
+description = "Controlled study: does fine-tuning Qwen3.8-27B on personal agent traces beat base at tool calling and coding?"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Murai Labs" }]
+
+# Deliberately minimal. Training, evaluation and audit dependencies are pinned per-phase in
+# configs/phaseN/locked-versions.yaml rather than floated here, because this project runs on
+# aarch64 + sm_121 where wheel availability is the dominant constraint and a loose range would
+# silently resolve to something untested.
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

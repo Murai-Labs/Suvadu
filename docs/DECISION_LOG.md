@@ -1,0 +1,144 @@
+# Suvadu — Decision Log
+
+## Update Rules
+
+Record every material research, tooling, gate, execution, blocker-resolution, or reporting
+decision here unless it already has a dedicated file under `docs/decisions/` (which must be
+linked from this log). Record the rationale **before** running expensive jobs. Never overwrite
+an entry — correct a past entry by appending a new one that references it.
+
+Each entry includes: date, task/gate, decision, rationale, alternatives considered, evidence,
+measured result (if any), follow-up, and human-approval status.
+
+---
+
+## DEC-0001 — Project scaffolding established
+
+Date: 2026-08-16
+Task/Gate: G0
+Decision: Initialized the Suvadu repo with the standard Murai Labs governance/tracker/docs/notes
+scaffolding and the phase→gate chain G0–G7.
+
+Rationale: The project is a research experiment whose deliverable is a *public comparative
+claim* ("beats base Qwen3.8-27B on tool calling and coding"). Public claims require an auditable
+record: pre-registered thresholds, provenanced runs, and gate decisions taken before results are
+seen. The standing lab scaffolding provides that.
+
+Alternatives Considered:
+- Plain repo with a README — rejected; a published comparative claim with no gate record is
+  exactly the failure mode the lab's cheap-baseline rule exists to prevent.
+- Reusing `Murai-Labs/qwen3.8-27b-rtx5090` — rejected; that repo is an *inference* benchmarking
+  project with its own leaderboard, and mixing a training project into it would muddle both. Its
+  eval harness is reused as a dependency instead (TASK P3.002).
+
+Evidence / Source Docs: `notes/spec-comprehension-check.md`, `tasks/atomic-task-list.md`,
+`docs/GATE_G0_REVIEW.md`.
+Measured Result: N/A (setup).
+Follow-up: Close G0 (P0.005), then G1 training-stack verification.
+Human Approval: Approved by Ramchand on 2026-08-16 (scaffolding and public-repo decision).
+
+---
+
+## DEC-0002 — Gate chain deviates from the template: cheap-baseline gate is G4, not G1
+
+Date: 2026-08-16
+Task/Gate: G0
+Decision: The mandatory cheap-baseline-falsification gate is numbered **G4** in this project,
+not G1 as in the standard template.
+
+Rationale: On this project the cheap baselines are themselves training runs (B1 token-matched
+control, B3 subsample, B4 LoRA). They physically cannot execute before a verified training stack
+(G1), a frozen corpus (G2), and a frozen evaluation with a measured base reference (G3) exist.
+Numbering the gate G1 while placing it fourth in dependency order would misrepresent the chain.
+
+Alternatives Considered:
+- Keep the cheap-baseline gate at G1 and renumber the prerequisites — rejected; it would make
+  the gate numbers non-monotonic with execution order, which is worse for a resuming agent.
+- Drop the prerequisites and run baselines first — impossible; there is nothing to run them on.
+
+Evidence / Source Docs: `CLAUDE.md` §3 and §7; `tasks/atomic-task-list.md` Phase 4.
+Measured Result: N/A.
+Follow-up: The deviation is stated in `CLAUDE.md` §3 and the README so it cannot read as the
+gate being quietly demoted.
+Human Approval: Approved by Ramchand on 2026-08-16.
+
+---
+
+## DEC-0003 — ε pinned at 3.0 percentage points, derived from a measured sensitivity floor
+
+Date: 2026-08-16
+Task/Gate: G4 (pre-registered at G0)
+Decision: The equivalence margin for the G4 falsification decision is **ε = 3.0 percentage
+points on metric M at n = 200**.
+
+Rationale: `Murai-Labs/qwen3.8-27b-rtx5090`'s `bench/LEADERBOARD.md` documents a *measured*
+sensitivity floor for its paired McNemar harness: 6 discordant items reach p<0.05 and 5 do not,
+independent of n — verified by degrading a stored run item by item. At n = 200, six items is
+exactly 3.0 pp. A difference smaller than that is invisible to the test, so treating it as real
+would be unsupportable.
+
+Alternatives Considered:
+- A conventional ε of 1 pp — rejected; below the harness's demonstrated resolution at n=200, so
+  the gate decision would be unadjudicable.
+- Defer ε until results are in — rejected outright; a threshold set after seeing results is not
+  a threshold. This is the specific rationalization the lab rule exists to block.
+
+Evidence / Source Docs: `Murai-Labs/qwen3.8-27b-rtx5090` `bench/LEADERBOARD.md`, read 2026-08-16.
+Measured Result: N/A (pre-registration).
+Follow-up: TASK P3.004 computes the n required to resolve smaller differences; if a smaller ε is
+wanted, n must rise first and the change must be recorded before Phase 4 runs.
+Human Approval: Approved by Ramchand on 2026-08-16.
+
+---
+
+## DEC-0004 — Public repo, but internal trackers and audit trail stay local
+
+Date: 2026-08-16
+Task/Gate: G0
+Decision: `Murai-Labs/Suvadu` is public. `STATUS.md`, `CHECKPOINT.md`, `GAPS.md` and the whole
+of `notes/` are gitignored. `docs/` **is** committed.
+
+Rationale: The standing Murai Labs rule keeps internal tracking files out of public repos. But
+the decision log and gate reviews are precisely what make a public comparative claim auditable —
+suppressing them would gut the reason for publishing at all. The split is therefore: internal
+working state stays local; the research record is public.
+
+Alternatives Considered:
+- Private repo — rejected by Ramchand; the project is intended to be public.
+- Commit everything including `notes/` — rejected; `notes/stuck-log.md`,
+  `notes/integrity-gaps.md` and `notes/untrusted-results.md` are internal working artifacts that
+  reference private paths and unpublished projects.
+
+Evidence / Source Docs: `.gitignore`; global CLAUDE.md "Working style"; memory
+`feedback_internal_tracking_files.md`.
+Measured Result: N/A.
+Follow-up: TASK P0.006 verifies with `git status --porcelain --ignored` before the first push.
+Human Approval: Approved by Ramchand on 2026-08-16.
+
+---
+
+## DEC-0005 — DeepSeek-V4-Flash shutdown approved, execution deferred
+
+Date: 2026-08-16
+Task/Gate: G1
+Decision: Ramchand authorized stopping the DeepSeek-V4-Flash TP=2 vLLM deployment occupying both
+Spark nodes. Execution is **deferred** to TASK P1.005, after the BF16 weights are downloaded and
+a training entrypoint exists.
+
+Rationale: Verified on 2026-08-16: both `spark-1003` and `spark-e7ec` report 111 GB of 121 GB in
+use, with `VLLM::EngineCore` resident for 2d21h and `:8000` listening on node 1. Training a 27B
+full-parameter model needs that memory. But the setup work ahead — a ~54 GB download and toolchain
+validation on aarch64 — does not need the GPUs. Stopping the endpoint now would cost days of
+availability for no gain.
+
+Alternatives Considered:
+- Stop immediately on approval — rejected; wastes the endpoint during setup.
+- Train on one node while DeepSeek runs on the other — rejected; the DeepSeek deployment is TP=2
+  and spans both nodes, so it cannot survive on one.
+
+Evidence / Source Docs: `ps`/`free`/`ss` output from both nodes, 2026-08-16; `STATUS.md`
+"Verified Environment Facts".
+Measured Result: N/A.
+Follow-up: P1.005 must capture the exact relaunch command — including `--headless` on worker
+rank 1 — *before* shutdown.
+Human Approval: Approved by Ramchand on 2026-08-16.

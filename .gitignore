@@ -1,0 +1,51 @@
+# Research repo stays text-free: raw/large/copyrighted data and checkpoints are NOT committed.
+# Commit manifests, configs, code, docs, reports only.
+#
+# THIS REPO IS PUBLIC. The training corpus is derived from private agent sessions containing
+# private source code and client-adjacent work. Nothing trace-derived is ever committed.
+
+# ---- Trace-derived and merged corpora: NEVER commit ----
+data/
+corpus/
+*.jsonl
+*.parquet
+*.arrow
+!docs/**/*.jsonl        # narrow exception: illustrative, hand-checked doc fixtures only
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-*/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Model weights / checkpoints
+runs/**/checkpoint*
+*.pt
+*.safetensors
+*.bin
+*.ckpt
+*.gguf
+
+# Logs / scratch
+*.log
+.tmp/
+scratch/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---- Internal-only tracking: local, never pushed to a public repo ----
+# (Murai Labs global rule: internal trackers and audit trails stay local.)
+GAPS.md
+STATUS.md
+CHECKPOINT.md
+notes/
