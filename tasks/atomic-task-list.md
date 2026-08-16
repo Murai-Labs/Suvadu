@@ -200,16 +200,21 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Estimated effort:** 8
 - **Done:** [ ]
 
-#### TASK P1.005: Stop the DeepSeek-V4-Flash deployment and record how to restore it
-- **What:** A written restore procedure, executed shutdown, and confirmation the cluster is free.
+#### TASK P1.005: Stop the `vllm-gemma` servers and confirm the cluster is free
+- **What:** Executed shutdown of both Gemma servers and confirmation the memory is released.
 - **Where:** `docs/RUNBOOK.md` (restore section), `notes/session-log.md`
 - **Why:** spec §3 · AGENTS.md §4 · the cluster is shared; taking it down must be reversible.
-- **Inputs:** P1.002, P1.004 (do not stop the endpoint before both exist)
+- **Inputs:** P1.002, P1.004 (do not stop the endpoints before both exist)
 - **Acceptance criteria:**
-  1. The exact relaunch command for DeepSeek-V4-Flash TP=2 is captured **before** shutdown,
-     including the `--headless` flag required on worker rank 1.
-  2. Post-shutdown `free -g` shows ≥110 GB available on both nodes.
-  3. Shutdown is human-approved on the day it happens (approval already granted 2026-08-16).
+  1. ~~Capture the relaunch command before shutdown~~ — **DONE 2026-08-16, ahead of schedule.**
+     Verified via `docker inspect` and recorded in `docs/RUNBOOK.md`. See DEC-0006.
+  2. Post-shutdown `free -g` shows ≥110 GB available on **both** nodes.
+  3. Shutdown is human-approved on the day it happens (approval granted 2026-08-16).
+  4. After the project's training work, the restore command is run and
+     `curl :8000/v1/models` returns `gemma-4-31B-it` on both nodes.
+- **Note:** the two servers are **independent single-node deployments**, not a TP=2 pair. Stop
+  each separately; neither depends on the other. The unrelated DeepSeek-V4-Flash stack at
+  `~/deepseek-v4/` (port 8888, `--headless` on rank 1) is **not running** and is not in scope.
 - **Evidence of completion:** RUNBOOK restore section + pasted `free -g` output.
 - **Validation:** `ssh -T -n Murailabs-Spark "free -g"` on both nodes.
 - **Measurements / logs:** available memory per node, timestamp.

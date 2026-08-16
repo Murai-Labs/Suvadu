@@ -142,3 +142,46 @@ Measured Result: N/A.
 Follow-up: P1.005 must capture the exact relaunch command — including `--headless` on worker
 rank 1 — *before* shutdown.
 Human Approval: Approved by Ramchand on 2026-08-16.
+
+---
+
+## DEC-0006 — Correction to DEC-0005: the cluster is running Gemma, not DeepSeek
+
+Date: 2026-08-16
+Task/Gate: G1
+Decision: DEC-0005 described the workload occupying both Spark nodes as a "DeepSeek-V4-Flash
+TP=2 vLLM deployment". That is **wrong**. This entry corrects it; per the append-only rule,
+DEC-0005 is left standing rather than edited.
+
+What is actually running, verified by `curl /v1/models` and `docker inspect` on 2026-08-16:
+
+```
+vllm serve google/gemma-4-31B-it --served-model-name gemma-4-31B-it \
+  --gpu-memory-utilization 0.85 --max-model-len 8192 --max-num-seqs 64
+```
+
+Container `vllm-gemma`, image `vllm-node-main:latest`, started 2026-08-13T21:29Z, `restart=no`.
+**Two independent single-node servers**, one per node, each bound to its own `:8000`. No
+tensor-parallel flag; the nodes are not coupled.
+
+Rationale for recording this as a decision entry rather than a silent fix: the error changed the
+options presented to Ramchand. He was told that keeping the endpoint alive on one node was
+impossible because "TP=2 needs both nodes". That was false — the servers are independent and
+either could have been kept up. He chose to free the whole cluster anyway, and full-parameter FT
+of a 27B does need both nodes, so the decision itself stands. But it was made on a wrong premise
+and the record must say so.
+
+How the error happened: the claim was inferred from the HF cache contents on the nodes
+(`models--deepseek-ai--DeepSeek-V4-Flash-0731` is present) plus a stored memory describing a
+DeepSeek TP=2 recipe, and then stated as fact without querying the endpoint. Reading
+`ps` output showing `VLLM::EngineCore` confirmed *that vLLM was running*, not *what it served*.
+One `curl` would have settled it and was not run until later.
+
+Alternatives Considered: none — this is a factual correction, not a choice.
+Evidence / Source Docs: `curl http://127.0.0.1:8000/v1/models` on both nodes;
+`docker inspect vllm-gemma`; `docs/RUNBOOK.md` restore section (now verified, not [UNVERIFIED]).
+Measured Result: N/A.
+Follow-up: `docs/RUNBOOK.md` rewritten with the verified relaunch command, which satisfies
+P1.005's precondition (capture the restore procedure *before* shutdown) ahead of schedule.
+TASK P1.005 retitled accordingly.
+Human Approval: N/A — correction of fact, reported to Ramchand 2026-08-16.

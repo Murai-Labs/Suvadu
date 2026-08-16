@@ -35,20 +35,50 @@ ssh -T -n Murailabs-Spark  "free -g | head -2; ps -eo pid,rss,etime,comm --sort=
 ssh -T -n Murailabs-Spark2 "free -g | head -2; ps -eo pid,rss,etime,comm --sort=-rss | head -5"
 ```
 
-As of 2026-08-16 both nodes showed 111 GB of 121 GB used by a DeepSeek-V4-Flash TP=2 vLLM
-deployment. Training cannot start until that is stopped (TASK P1.005).
+As of 2026-08-16 both nodes showed 111 GB of 121 GB used. Training cannot start until the
+resident workload is stopped (TASK P1.005).
 
-## Restore the DeepSeek-V4-Flash deployment  **[UNVERIFIED]**
+## Restore the Gemma deployment currently occupying the cluster
 
-**This section must be completed with the exact working relaunch command BEFORE the deployment
-is stopped.** Capturing it afterwards is not possible. Key known constraint: worker rank 1 must
-be launched with `--headless`. Configuration lives at `~/deepseek-v4/` on the nodes; see the
-`deepseek_v4_spark` operational notes.
+**Verified by `docker inspect` on 2026-08-16, before any shutdown.**
 
+What is actually running is **not** a DeepSeek-V4-Flash TP=2 deployment. It is **two
+independent single-node vLLM servers**, one per node, each serving `google/gemma-4-31B-it` on
+its own `:8000`. There is no `--tensor-parallel-size`; the nodes are not coupled. Either can be
+stopped without affecting the other.
+
+Container: `vllm-gemma` · image `vllm-node-main:latest` · started 2026-08-13T21:29Z ·
+**`restart=no`** — once stopped it stays down until relaunched by hand.
+
+Relaunch, run separately on **each** node:
+
+```bash
+sudo docker run -d --name vllm-gemma \
+  --gpus all --ipc=host -p 8000:8000 \
+  -v /home/murailabs/.cache/huggingface:/root/.cache/huggingface \
+  -e HF_HUB_OFFLINE=1 \
+  vllm-node-main:latest \
+  vllm serve google/gemma-4-31B-it --served-model-name gemma-4-31B-it \
+    --gpu-memory-utilization 0.85 --max-model-len 8192 --max-num-seqs 64
 ```
-TODO(P1.005): paste the verified relaunch command here before executing any shutdown.
-Until this block is filled, stopping the deployment is forbidden.
+
+Stop (per node):
+
+```bash
+sudo docker stop vllm-gemma && sudo docker rm vllm-gemma
 ```
+
+Confirm it is back:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models
+# expect: {"object":"list","data":[{"id":"gemma-4-31B-it", ...}]}
+```
+
+Two notes carried from the original (wrong) version of this section, kept because they apply to
+a *different* deployment that also lives on this cluster: the DeepSeek-V4-Flash stack at
+`~/deepseek-v4/` serves on **port 8888**, requires `--headless` on worker rank 1, and must be
+torn down on both nodes. That stack is **not currently running** and is not what P1.005 stops.
 
 ## Environment setup  **[UNVERIFIED]**
 
