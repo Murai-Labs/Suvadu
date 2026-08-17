@@ -156,11 +156,23 @@ B4 comparison is not interpretable.
 
 ### Q010 — `adamw_8bit` assumes bitsandbytes works on aarch64 + sm_121
 
-**Status:** Open — surfaced 2026-08-16 while writing the training image.
-**Blocking Impact:** **High.** The entire 2-node memory argument depends on it.
+**Status:** **Resolved 2026-08-17** — affirmatively.
+**Blocking Impact:** was High. The entire 2-node memory argument depended on it.
 **Needed For:** G1 (P1.003), and the feasibility of full-parameter FT at all.
-**Resolution Path:** P1.003 must confirm an 8-bit optimizer actually initializes on GB10 before
-the memory profile means anything.
+**Resolution:** Tested on `spark-1003` inside `suvadu-train:2026-08-17`:
+
+```
+bnb_version: 0.50.1
+bnb_adamw8bit_step: OK      # AdamW8bit .step() on a cuda bf16 parameter, GB10 / sm_121
+torch_fused_adamw: OK       # torch.optim.AdamW(fused=True), the fallback
+```
+
+`bitsandbytes` installs from PyPI on aarch64 with no build step, and an 8-bit optimizer step
+executes on GB10. The fallback path is also live, so this is de-risked twice over.
+
+**Residual:** this shows the optimizer *initializes and steps on one small tensor*. It does not
+show that 8-bit state for ~27.4 B trainable parameters fits, which is the `optim` stage of
+P1.003. Keep `optimizer: adamw_8bit` explicit in configs so the assumption stays greppable.
 
 The ~155 GiB estimate assumes optimizer state of ~1 byte per parameter per moment — i.e. 8-bit
 Adam. Standard fp32 AdamW would be **4 bytes × 2 moments = ~222 GiB of optimizer state alone**,
