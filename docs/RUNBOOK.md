@@ -80,14 +80,39 @@ a *different* deployment that also lives on this cluster: the DeepSeek-V4-Flash 
 `~/deepseek-v4/` serves on **port 8888**, requires `--headless` on worker rank 1, and must be
 torn down on both nodes. That stack is **not currently running** and is not what P1.005 stops.
 
-## Environment setup  **[UNVERIFIED]**
+## Environment setup
 
 ML on Spark is container-first — aarch64 + Blackwell wheels are unreliable, and builds must
-match sm_121. Establish and pin the image in TASK P1.001 before filling this in.
+match sm_121.
+
+**Training image: `suvadu-train:2026-08-17`**, built on both nodes 2026-08-17 from
+`docker/Dockerfile.train`. Build it natively per node; never `docker save` ~20 GB across the link.
 
 ```bash
-# Determined by P1.001. Record the image digest or wheel set in configs/phase1/env-report.md.
+mkdir -p $HOME/suvadu-build && cp docker/Dockerfile.train $HOME/suvadu-build/Dockerfile
+cd $HOME/suvadu-build
+sudo docker build -t suvadu-train:2026-08-17 -f Dockerfile .
 ```
+
+Built image IDs (they **differ** between nodes — independent builds are not bit-reproducible):
+
+| Node | Image ID | Lockfile SHA256 |
+|---|---|---|
+| spark-1003 | `5447c513d6f1` | `d47ba0948bccf8501ebf16062f9ec7ab67c64b94fa358f54f34ad98273261380` |
+| spark-e7ec | `c91d0a57767a` | `d47ba0948bccf8501ebf16062f9ec7ab67c64b94fa358f54f34ad98273261380` |
+
+**The lockfile hash is what must match, and it does** — 245 packages, byte-identical across
+nodes. Comparing image IDs would fail for reasons that carry no meaning.
+
+Caveat on the lockfile: the NGC-supplied wheels are pinned as local paths with hashes, e.g.
+
+```
+torch @ file:///opt/transfer/torch-2.10.0a0%2Bb558c986e8.nv25.11-...whl#sha256=2afd4510...
+```
+
+Those paths exist only inside the base image. So `configs/phase1/requirements.lock` **does not
+reconstruct the environment on its own** — it reproduces it only in combination with
+`nvcr.io/nvidia/pytorch:25.11-py3`. Both must be cited together for a run to be reproducible.
 
 Verification that must pass before the environment is considered usable:
 
@@ -147,8 +172,15 @@ sudo docker logs --tail 5 suvadu-dl1
 du -sh $HOME/models/Qwen3.8-27B
 ```
 
-**Run it detached (`-d`), not in the SSH foreground.** A foreground `docker run` dies with the
-SSH session — this is how the first node-2 attempt lost a 19.5 GB image pull partway through.
+**Run it detached (`-d`), not in the SSH foreground**, so the client isn't holding the session
+open for hours.
+
+*Correction, 2026-08-17:* an earlier version of this note claimed a foreground `docker run` on
+node 2 "lost a 19.5 GB image pull partway through" when the SSH session timed out. That was
+wrong. Docker pulls are performed by the **daemon**, not the client — killing the client does
+not abort them. Node 2 was later found to hold `nvcr.io/nvidia/pytorch:25.11-py3` with the same
+image ID as node 1 (`eea3fe49e8a5`), so that pull had in fact completed server-side. The reason
+to detach is to avoid tying up a session, not to protect the pull.
 
 The revision SHA is pinned deliberately: the upstream repo was last modified **2026-08-14**, and
 `main` moved **six times in a single day**. Record the resolved SHA and the on-disk byte count in

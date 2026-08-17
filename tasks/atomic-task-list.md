@@ -31,7 +31,7 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** none
 - **Blocking gate:** G0
 - **Estimated effort:** 1
-- **Done:** [ ]
+- **Done:** [x] **2026-08-16** — notes/spec-comprehension-check.md written (spec of record, sections 1-11).
 
 #### TASK P0.002: Establish package skeleton and tests
 - **What:** Installable `src/suvadu/` package with version, plus an import/layout smoke test.
@@ -47,7 +47,7 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** none
 - **Blocking gate:** G0
 - **Estimated effort:** 2
-- **Done:** [ ]
+- **Done:** [x] **2026-08-16** — package + 6 layout/import tests passing.
 
 #### TASK P0.003: Implement run-provenance writer
 - **What:** A writer recording the 5 identifiers (config hash, code SHA, data hash, seed,
@@ -66,7 +66,7 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P0.002
 - **Blocking gate:** G0
 - **Estimated effort:** 3
-- **Done:** [ ]
+- **Done:** [x] **2026-08-16** — provenance.py + 14 tests; manifest carries all 5 identifiers.
 
 #### TASK P0.004: Lock the config contract
 - **What:** A versioned config schema plus a locked dependency-version file.
@@ -83,7 +83,7 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P0.002
 - **Blocking gate:** G0
 - **Estimated effort:** 3
-- **Done:** [ ]
+- **Done:** [x] **2026-08-16** — config.py + 19 tests; schema-consumer audit written; no torch_dtype in src.
 
 #### TASK P0.005: Author the G0 gate review and close G0
 - **What:** The G0 review document recording what exists and, explicitly, what does not.
@@ -100,7 +100,7 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P0.001, P0.002, P0.003, P0.004
 - **Blocking gate:** G0
 - **Estimated effort:** 1
-- **Done:** [ ]
+- **Done:** [x] **2026-08-16** — docs/GATE_G0_REVIEW.md evidence table filled from artifacts.
 
 #### TASK P0.006: Initialize git and create the public GitHub repo
 - **What:** Local git repo plus `Murai-Labs/Suvadu` on GitHub, public, first commit pushed.
@@ -118,7 +118,7 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P0.005
 - **Blocking gate:** G0
 - **Estimated effort:** 1
-- **Done:** [ ]
+- **Done:** [x] **2026-08-16** — git init, ignore rules verified, commit cedcf86 pushed to public Murai-Labs/Suvadu.
 
 ---
 
@@ -242,8 +242,9 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Acceptance criteria:**
   1. ~~Capture the relaunch command before shutdown~~ — **DONE 2026-08-16, ahead of schedule.**
      Verified via `docker inspect` and recorded in `docs/RUNBOOK.md`. See DEC-0006.
-  2. Post-shutdown `free -g` shows ≥110 GB available on **both** nodes.
-  3. Shutdown is human-approved on the day it happens (approval granted 2026-08-16).
+  2. ✅ Post-shutdown `free -g`: **117 GB available on spark-1003, 118 GB on spark-e7ec**
+     (both were 110–111 GB *used* before). Containers removed, `:8000` closed on both.
+  3. ✅ Human-approved 2026-08-16, re-affirmed and executed on instruction 2026-08-17 (DEC-0009).
   4. After the project's training work, the restore command is run and
      `curl :8000/v1/models` returns `gemma-4-31B-it` on both nodes.
 - **Note:** the two servers are **independent single-node deployments**, not a TP=2 pair. Stop
@@ -272,7 +273,11 @@ rather than mysterious. Because `restart=no`, nothing restores it automatically.
 - **Dependencies:** P1.002, P1.004
 - **Blocking gate:** G1
 - **Estimated effort:** 2
-- **Done:** [ ]
+- **Done:** [ ] — **shutdown EXECUTED 2026-08-17; task stays open on criterion 4.**
+  Criteria 1–3 are met. Criterion 4 (Gemma restored and `curl :8000/v1/models` answering on both
+  nodes) is by definition unmet while Suvadu holds the cluster, and must not be ticked until the
+  endpoints are actually back. Leaving this box open is the only durable reminder that a service
+  someone may depend on is currently down by our hand.
 
 #### TASK P1.006: G1 decision — training stack verified
 - **What:** The G1 gate review recording that a real optimizer step ran and loss decreased.
@@ -313,10 +318,25 @@ rather than mysterious. Because `restart=no`, nothing restores it automatically.
 - **Dependencies:** P1.001
 - **Blocking gate:** G1
 - **Estimated effort:** 3
-- **Done:** [ ] — **Dockerfile written 2026-08-16 (`docker/Dockerfile.train`); build deferred.**
-  Build deliberately not run yet: node 2 lacks the NGC base and would need a 19.5 GB pull while
-  it is mid-way through a 51.75 GiB weight download, slowing both for no gain. Build once the
-  downloads land. Only `transformers==5.15.0` and `accelerate==1.14.0` are pinned — the two
+- **Done:** [x] **COMPLETE 2026-08-17.** Built on both nodes as `suvadu-train:2026-08-17`.
+  1. ✅ `FROM nvcr.io/nvidia/pytorch:25.11-py3`; only verified versions pinned.
+  2. ✅ Built natively on both nodes. **Image IDs differ** (`5447c513d6f1` / `c91d0a57767a`) —
+     independent builds are not bit-reproducible, so the acceptance criterion as originally
+     written ("matching image IDs") was not the right check. The meaningful check is the
+     resolved environment: **lockfile SHA256 `d47ba094...61380` is identical on both nodes**,
+     245 packages.
+  3. ✅ Lockfile committed as `configs/phase1/requirements.lock`.
+  4. ✅ Probe reproduces exactly on both: torch `2.10.0a0+b558c986e8.nv25.11`, capability
+     `(12, 1)`, `NVIDIA GB10`, transformers `5.15.0`, accelerate `1.14.0`.
+- **Caveat:** NGC wheels are pinned as in-image paths
+  (`torch @ file:///opt/transfer/...#sha256=2afd4510...`), so the lockfile reproduces the
+  environment **only together with** the base image tag — never cite it alone.
+- **Superseded note (build deferral, resolved):** the build was deferred on 2026-08-16 on the
+  belief that node 2 lacked the NGC base and would need a 19.5 GB pull while mid-download.
+  **That belief was wrong** — node 2 already held the image (`eea3fe49e8a5`, same ID as node 1);
+  the earlier interrupted pull had completed server-side, because docker pulls are performed by
+  the daemon and are not aborted when the client dies. The deferral cost nothing, but it was
+  based on a false premise. Corrected in `docs/RUNBOOK.md`. Only `transformers==5.15.0` and `accelerate==1.14.0` are pinned — the two
   versions actually verified on this hardware; the rest is resolved at build and captured in
   the lockfile, rather than pinned to numbers nobody checked.
 - **Note:** `bitsandbytes` is deliberately **absent** from the image pending Q010 — the
