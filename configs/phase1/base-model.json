@@ -54,7 +54,78 @@
     "spark-e7ec": "/home/murailabs/models/Qwen3.8-27B"
   },
 
-  "on_disk_bytes": { "spark-1003": null, "spark-e7ec": null },
-  "on_disk_verified_at": null,
-  "on_disk_status": "download in progress, launched 2026-08-16"
+  "on_disk_bytes": { "spark-1003": 55586114863, "spark-e7ec": 55586114863 },
+  "on_disk_files": { "spark-1003": 32, "spark-e7ec": 32 },
+  "on_disk_safetensors_bytes": 55563006776,
+  "on_disk_verified_at": "2026-08-17",
+  "on_disk_status": "complete and verified on both nodes",
+
+  "download": {
+    "duration_min": { "spark-1003": 84.7, "spark-e7ec": 83.9 },
+    "container_exit_code": { "spark-1003": 0, "spark-e7ec": 0 },
+    "byte_totals_identical_across_nodes": true
+  },
+
+  "reconciliation": {
+    "_comment": [
+      "on_disk_bytes exceeds expected_total_size_bytes by 23,258,959. Fully accounted for:",
+      "the index's total_size counts TENSOR DATA ONLY.",
+      "safetensors headers:  55,563,006,776 on disk - 55,562,855,904 in index = 150,872 bytes",
+      "                      across 18 shards, i.e. the per-shard JSON headers.",
+      "non-safetensors:      tokenizer.json 12,809,320 + vocab.json 6,722,759 +",
+      "                      merges.txt 3,353,259 + index/README/configs = ~22.9 MB.",
+      "No bytes are unexplained."
+    ],
+    "delta_vs_index_total_size": 23258959,
+    "unexplained_bytes": 0
+  },
+
+  "load_test": {
+    "performed": "2026-08-17, both nodes, from the local directory",
+    "config_model_type": "qwen3_5",
+    "config_architectures": ["Qwen3_5ForConditionalGeneration"],
+    "tokenizer_class": "Qwen2Tokenizer",
+    "tokenizer_vocab_size": 248044,
+    "tokenizer_roundtrip_ok": true,
+    "chat_template_present": true,
+    "shards_referenced_by_index": 18,
+    "shards_missing": 0,
+    "tensors_in_index": 1199,
+    "_vocab_note": [
+      "tokenizer.vocab_size 248044 < config vocab_size 248320. This is the ordinary embedding",
+      "padding gap, not a mismatch: the config sizes the embedding matrix (padded), the",
+      "tokenizer reports base vocabulary excluding added/special tokens."
+    ]
+  },
+
+  "integrity": {
+    "crc32_manifest_shipped": true,
+    "crc32_covers_weight_shards": false,
+    "crc32_files_checked": 8,
+    "crc32_passed": 5,
+    "crc32_failed": 3,
+    "crc32_failed_files": [
+      "chat_template.jinja",
+      "generation_config.json",
+      "tokenizer_config.json"
+    ],
+    "verdict": "UPSTREAM MANIFEST IS STALE - download is correct",
+    "_evidence": [
+      "The three failures are byte-identical across two independent 84-minute downloads on",
+      "separate nodes. Corruption would differ between them.",
+      "Upstream commit history settles it: crc32.txt arrived in commit 72a217afab80",
+      "(2026-08-13 08:23:30, 'Upload folder using huggingface_hub'). The three failing files",
+      "were each REPLACED afterwards - 452438ec4174 tokenizer_config.json (10:15:48),",
+      "412f8b6bd7f5 chat_template.jinja (10:16:05), dbdc473dea0d generation_config.json",
+      "(10:16:08) - and crc32.txt was never regenerated.",
+      "The failing set is exactly the set of files modified after the manifest was written."
+    ]
+  },
+
+  "_revision_note": [
+    "The pinned revision 1d4bf0f2ff60 is a README-only commit (2026-08-14 15:00:01). The last",
+    "six upstream commits are all README/model-card edits, so the weights at this revision are",
+    "unchanged since 72a217afab80 (2026-08-13). Pinning still matters: the repo is actively",
+    "edited and 'main' moved six times in one day."
+  ]
 }

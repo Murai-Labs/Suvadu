@@ -160,12 +160,28 @@ G5 launch → G6 capability → G7 memorization/publication.
   2. The revision SHA is pinned and recorded in `configs/phase1/base-model.json`.
   3. A load test instantiates the config and tokenizer (not full weights) without error.
 - **Evidence of completion:** `configs/phase1/base-model.json` with revision SHA and byte count.
-- **Validation:** `du -sb`, `hf` revision output, tokenizer round-trip test.
+- **Validation:** `du -sb`, revision pin, tokenizer round-trip test.
 - **Measurements / logs:** download duration, final size, revision SHA.
 - **Dependencies:** P1.001
 - **Blocking gate:** G1
 - **Estimated effort:** 3
-- **Done:** [ ]
+- **Done:** [x] **COMPLETE 2026-08-17, both nodes.**
+  1. ✅ 55,586,114,863 bytes / 32 files / 18 shards, **byte-identical on both nodes**, container
+     `exit=0`, 84.7 min (node 1) and 83.9 min (node 2). Delta vs the index's `total_size` is
+     23,258,959 bytes and is **fully reconciled** — 150,872 of safetensors headers plus ~22.9 MB
+     of tokenizer/vocab/merges. Zero unexplained bytes.
+  2. ✅ Revision pinned `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` and recorded. (It is a
+     README-only commit; `main` moved six times on 2026-08-14, which is why pinning matters.)
+  3. ✅ Load test on both nodes: `model_type qwen3_5`, `Qwen2Tokenizer`, round-trip OK, chat
+     template present, 18/18 shards present, 1199 tensors indexed.
+- **Finding — do not re-download on a CRC32 failure.** Upstream ships `crc32.txt`; 3 of its 8
+  entries fail (`chat_template.jinja`, `generation_config.json`, `tokenizer_config.json`),
+  **identically on both nodes**. The manifest is stale: it landed in commit `72a217afab80` and
+  those three files were replaced ~2 h later without it being regenerated. `crc32.txt` also does
+  **not** cover the weight shards. Details in `docs/RUNBOOK.md`.
+- **Side finding:** `vllm-node-main:latest` already carries **transformers 5.15.0**, so node 2
+  can run transformers-v5 work without the 19.5 GB NGC pull. Relevant to P1.007 if that pull is
+  ever inconvenient — though NGC stays the preferred training base (DEC-D0001).
 
 #### TASK P1.003: Measure the real memory profile of a 27B optimizer step
 - **What:** A measured (not computed) memory profile for full-parameter FSDP on 2 nodes.

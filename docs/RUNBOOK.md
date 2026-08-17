@@ -150,9 +150,55 @@ du -sh $HOME/models/Qwen3.8-27B
 **Run it detached (`-d`), not in the SSH foreground.** A foreground `docker run` dies with the
 SSH session — this is how the first node-2 attempt lost a 19.5 GB image pull partway through.
 
-The revision SHA is pinned deliberately: the upstream repo was last modified **2026-08-14**, two
-days before this download, so "latest" is a moving target. Record the resolved SHA and the
-on-disk byte count in `configs/phase1/base-model.json`.
+The revision SHA is pinned deliberately: the upstream repo was last modified **2026-08-14**, and
+`main` moved **six times in a single day**. Record the resolved SHA and the on-disk byte count in
+`configs/phase1/base-model.json`.
+
+Measured 2026-08-17: **84 minutes per node**, 55,586,114,863 bytes, 32 files, identical totals on
+both nodes.
+
+### Verifying the download — and the CRC32 trap
+
+`Qwen/Qwen3.8-27B` ships a `crc32.txt`. **Three of its eight entries fail, and that is expected.**
+
+```
+FAIL chat_template.jinja        FAIL generation_config.json     FAIL tokenizer_config.json
+```
+
+Do **not** re-download. The manifest is stale upstream: `crc32.txt` arrived in commit
+`72a217afab80` (2026-08-13 08:23), and those three files were each replaced ~2 hours later in
+`452438ec4174`, `412f8b6bd7f5` and `dbdc473dea0d`, without the manifest being regenerated. The
+failing set is exactly the set of files modified after it was written.
+
+Note also that **`crc32.txt` does not cover the weight shards at all** — it lists 8 config and
+tokenizer files. It cannot tell you whether 51.75 GiB of weights arrived intact.
+
+What actually gives confidence, and what this project uses instead:
+
+```bash
+# 1. byte totals identical across two independent downloads
+find $HOME/models/Qwen3.8-27B -type f -not -path "*/.cache/*" -printf "%s\n" \
+  | awk '{s+=$1} END {printf "bytes=%d files=%d\n", s, NR}'
+# expect: bytes=55586114863 files=32
+
+# 2. every shard the index references is present, and the tensor count matches
+python -c "
+import json,os; D='$HOME/models/Qwen3.8-27B'
+i=json.load(open(D+'/model.safetensors.index.json')); f=set(i['weight_map'].values())
+print('shards',len(f),'missing',sum(not os.path.exists(D+'/'+x) for x in f),'tensors',len(i['weight_map']))"
+# expect: shards 18 missing 0 tensors 1199
+
+# 3. config + tokenizer instantiate from the local dir
+python -c "
+from transformers import AutoConfig, AutoTokenizer; D='$HOME/models/Qwen3.8-27B'
+print(AutoConfig.from_pretrained(D).model_type)
+t=AutoTokenizer.from_pretrained(D); print(type(t).__name__, t.vocab_size)"
+# expect: qwen3_5 / Qwen2Tokenizer 248044
+```
+
+`tokenizer.vocab_size` (248044) is smaller than the config's `vocab_size` (248320). That is the
+ordinary embedding-padding gap, not a mismatch — the config sizes the padded embedding matrix,
+the tokenizer reports the base vocabulary.
 
 ## Run a smoke test  **[UNVERIFIED]**
 
