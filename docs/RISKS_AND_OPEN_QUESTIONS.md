@@ -197,6 +197,31 @@ executes on GB10. The fallback path is also live, so this is de-risked twice ove
 show that 8-bit state for ~27.4 B trainable parameters fits, which is the `optim` stage of
 P1.003. Keep `optimizer: adamw_8bit` explicit in configs so the assumption stays greppable.
 
+### ⚠️ REOPENED AND RE-RESOLVED 2026-08-17 — the residual above was the real issue
+
+The residual was framed as a question of **scale**. It was actually a question of **tensor type**,
+and the distinction mattered:
+
+```
+RuntimeError: bitsandbytes.optimizer_update_8bit_blockwise.default:
+got mixed torch.Tensor and DTensor, need to convert all torch.Tensor to DTensor
+before calling distributed operators!
+```
+
+**`bitsandbytes` AdamW8bit cannot be used with FSDP2 at all.** Its custom CUDA op does not
+dispatch over `DTensor`, and FSDP2 hands the optimizer DTensor-sharded parameters. The check
+that closed this gate used a plain `torch.nn.Parameter`, so it proved the kernel runs — not that
+it runs on what FSDP2 actually produces. The gate read green on evidence that did not cover the
+use.
+
+**Resolution:** switched to **`torchao.optim.AdamW8bit`**, which is DTensor-aware. torchao
+0.14.0 already ships inside `nvcr.io/nvidia/pytorch:25.11-py3`, so this additionally removes the
+runtime `pip install bitsandbytes` and makes the probe reproducible from the pinned image alone.
+`torchao.optim.AdamW4bit` is available as a fallback if 8-bit state proves too large.
+
+**Standing lesson:** a compatibility check must exercise the *same object type* the real code
+path produces. "It works on a tensor" does not establish "it works on a sharded tensor".
+
 The ~155 GiB estimate assumes optimizer state of ~1 byte per parameter per moment — i.e. 8-bit
 Adam. Standard fp32 AdamW would be **4 bytes × 2 moments = ~222 GiB of optimizer state alone**,
 which does not fit across both nodes under any arrangement. So the 8-bit optimizer is not a

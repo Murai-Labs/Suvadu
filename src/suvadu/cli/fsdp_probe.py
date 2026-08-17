@@ -24,6 +24,7 @@ allocator ceiling before touching the model.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import time
@@ -116,22 +117,52 @@ def main(argv: list[str] | None = None) -> int:
         from transformers import AutoModelForCausalLM as _Cls
     else:
         from transformers import AutoModelForImageTextToText as _Cls
-    model = _Cls.from_pretrained(args.model_path, dtype=getattr(torch, cfg.dtype))
+    # Load STRAIGHT onto the device, never CPU-then-.to("cuda").
+    #
+    # This cost three OOMs on 2026-08-17 before the numbers gave it away. GB10 has unified
+    # memory: there is no separate VRAM, so a CPU copy and a GPU copy occupy the *same* physical
+    # pool. Loading to CPU and then moving to device holds the model TWICE — ~51 GiB of dead
+    # weight for the lifetime of the run. The tell was torch accounting for 51.8 GiB while
+    # /proc/meminfo reported only 15.95 GiB available: ~54 GiB in use that torch did not own,
+    # almost exactly one model.
+    #
+    # On a discrete-GPU box this pattern is merely wasteful and transient. Here it is fatal, and
+    # torch's own memory summary cannot see it — which is why this probe reads /proc/meminfo
+    # alongside the allocator rather than trusting either alone.
+    model = _Cls.from_pretrained(
+        args.model_path,
+        dtype=getattr(torch, cfg.dtype),
+        device_map={"": f"cuda:{local_rank}"},
+        low_cpu_mem_usage=True,
+    )
     summary = apply_freeze_policy(model, args.freeze_policy)
+    # TRAINING MODE FIRST. `from_pretrained` returns a model in eval mode, and HuggingFace's
+    # checkpointed layers branch on `if self.gradient_checkpointing and self.training:`. With
+    # the flag set but `training=False`, checkpointing is silently skipped and every activation
+    # is retained — while `is_gradient_checkpointing` still reports True.
+    #
+    # That cost four OOMs on 2026-08-17. The read-back below confirms the FLAG; only
+    # `model.training` confirms it will actually engage, so both are recorded.
+    model.train()
+
     ckpt_on = False
     if cfg.gradient_checkpointing:
         model.gradient_checkpointing_enable()
         model.config.use_cache = False
-        # Read it back rather than assume the call took. On a composite (vision + language)
-        # model the flag can apply to one sub-model and not the other, and an activation figure
-        # measured with checkpointing silently off describes a different run entirely.
         ckpt_on = bool(getattr(model, "is_gradient_checkpointing", False))
     n_total = sum(p.numel() for p in model.parameters())
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     record("load_cpu", t0, model_class=type(model).__name__,
            params_total=n_total, params_trainable=n_train,
-           gradient_checkpointing=ckpt_on,
+           gradient_checkpointing_flag=ckpt_on,
+           training_mode=bool(model.training),
+           checkpointing_will_engage=bool(ckpt_on and model.training),
            trained_tensors=summary.counts_by_group, frozen_tensors=summary.frozen_by_group)
+    if cfg.gradient_checkpointing and not (ckpt_on and model.training):
+        _log(rank, "FATAL: gradient checkpointing requested but will NOT engage "
+                   f"(flag={ckpt_on}, training={model.training}). Refusing to run — the "
+                   "measurement would describe a different configuration than the one asked for.")
+        raise SystemExit(3)
 
     # ---- shard --------------------------------------------------------------------------
     t0 = time.monotonic()
@@ -148,7 +179,12 @@ def main(argv: list[str] | None = None) -> int:
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         model = FSDP(model, device_id=local_rank, use_orig_params=True)
         api = "fsdp1:FullyShardedDataParallel"
-    model = model.to("cuda")
+
+    # No .to("cuda") here — the model is already on device (see the load comment). Reclaim
+    # whatever the shard left behind before measuring, so the recorded figure is steady-state
+    # rather than steady-state plus transient.
+    gc.collect()
+    torch.cuda.empty_cache()
     torch.cuda.synchronize()
     record("shard", t0, api=api)
 
@@ -156,11 +192,28 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.monotonic()
     trainable = [p for p in model.parameters() if p.requires_grad]
     if cfg.optimizer == "adamw_8bit":
-        import bitsandbytes as bnb
-        optimizer = bnb.optim.AdamW8bit(trainable, lr=cfg.learning_rate)
+        # torchao, NOT bitsandbytes.
+        #
+        # bitsandbytes' AdamW8bit cannot be used with FSDP2 (verified 2026-08-17):
+        #   RuntimeError: bitsandbytes.optimizer_update_8bit_blockwise.default:
+        #   got mixed torch.Tensor and DTensor
+        # Its custom CUDA op does not dispatch over DTensor, and FSDP2 hands the optimizer
+        # DTensor-sharded parameters. The Q010 check that "passed" used a plain Parameter, so it
+        # confirmed the kernel runs — not that it runs on what FSDP2 actually produces.
+        #
+        # torchao's low-bit optimizers are DTensor-aware, and torchao ships inside the NGC base
+        # image already, so this also removes the runtime pip install and makes the run
+        # reproducible from the pinned image alone.
+        from torchao.optim import AdamW8bit
+        optimizer = AdamW8bit(trainable, lr=cfg.learning_rate)
+        impl = "torchao.optim.AdamW8bit"
     else:
+        # fp32 AdamW is recorded as unusable here, not merely unpreferred: two moments at
+        # 4 bytes over ~13.4B sharded params is ~100 GiB of optimizer state per rank.
         optimizer = torch.optim.AdamW(trainable, lr=cfg.learning_rate, fused=True)
-    record("optim_init", t0, optimizer=cfg.optimizer, n_trainable_tensors=len(trainable))
+        impl = "torch.optim.AdamW(fused)"
+    record("optim_init", t0, optimizer=cfg.optimizer, impl=impl,
+           n_trainable_tensors=len(trainable))
 
     # ---- steps --------------------------------------------------------------------------
     step_times: list[float] = []
