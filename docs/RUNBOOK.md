@@ -99,18 +99,60 @@ python -c "from transformers import AutoConfig; print(AutoConfig.from_pretrained
 
 Expected: transformers v5+, capability `(12, 1)`, model_type `qwen3_5`.
 
-## Download the trainable base model  **[UNVERIFIED]**
+## Download the trainable base model
 
-Every Qwen3.8-27B copy currently on any machine here is an inference quantization (NVFP4/GGUF)
-and **cannot be fine-tuned**. The BF16 base is a separate ~54 GB download.
+Every Qwen3.8-27B copy on any machine here is an inference quantization (NVFP4/GGUF) and
+**cannot be fine-tuned**. The BF16 base is a separate **51.75 GiB** download.
 
-```bash
-hf download Qwen/Qwen3.8-27B --local-dir ~/models/Qwen3.8-27B
-du -sh ~/models/Qwen3.8-27B
+**`hf` is not on PATH on the Spark nodes** and the host has no `huggingface_hub`, so run the
+download inside a container that already has it. Node 1 has `nvcr.io/nvidia/pytorch:25.11-py3`;
+node 2 does not, but has `vllm-node-main:latest`, which also carries `huggingface_hub`. Use
+whichever is already present — pulling a 19.5 GB image just to fetch weights is wasted bandwidth.
+
+Script (written to `~/suvadu_download.py` on the node):
+
+```python
+import os, time
+from huggingface_hub import snapshot_download
+
+REPO = "Qwen/Qwen3.8-27B"
+REV  = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"   # pinned; repo was modified 2026-08-14
+DEST = "/models/Qwen3.8-27B"
+
+t0 = time.time()
+print("[suvadu] start %s@%s -> %s" % (REPO, REV[:12], DEST), flush=True)
+p = snapshot_download(repo_id=REPO, revision=REV, local_dir=DEST, max_workers=8)
+el = time.time() - t0
+total = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(p) for f in fs)
+print("[suvadu] DONE in %.1f min" % (el / 60.0), flush=True)
+print("[suvadu] bytes=%d (%.2f GiB)" % (total, total / 1024.0**3), flush=True)
 ```
 
-Record the resolved revision SHA in `configs/phase1/base-model.json`. A pinned revision is
-required — "latest" is not reproducible.
+Launch detached, per node:
+
+```bash
+mkdir -p $HOME/models
+sudo docker run -d --name suvadu-dl1 \
+  -e HF_HUB_OFFLINE=0 \
+  -v $HOME/models:/models \
+  -v $HOME/suvadu_download.py:/suvadu_download.py:ro \
+  nvcr.io/nvidia/pytorch:25.11-py3 python /suvadu_download.py    # node 1
+  # node 2: swap image for vllm-node-main:latest and `python` for `python3`
+```
+
+Watch it:
+
+```bash
+sudo docker logs --tail 5 suvadu-dl1
+du -sh $HOME/models/Qwen3.8-27B
+```
+
+**Run it detached (`-d`), not in the SSH foreground.** A foreground `docker run` dies with the
+SSH session — this is how the first node-2 attempt lost a 19.5 GB image pull partway through.
+
+The revision SHA is pinned deliberately: the upstream repo was last modified **2026-08-14**, two
+days before this download, so "latest" is a moving target. Record the resolved SHA and the
+on-disk byte count in `configs/phase1/base-model.json`.
 
 ## Run a smoke test  **[UNVERIFIED]**
 
