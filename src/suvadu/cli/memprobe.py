@@ -108,6 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "MTP head. Measured on a meta device 2026-08-17.")
     p.add_argument("--seq-len", type=int, default=0, help="override config max_seq_len")
     p.add_argument("--out", default="", help="write results JSON here")
+    p.add_argument("--max-mem-fraction", type=float, default=0.85,
+                   help="hard ceiling as a fraction of device memory. On GB10 the CUDA pool IS "
+                        "system memory, so an uncapped probe that OOMs takes the whole node "
+                        "with it — sshd included. 0.85 leaves ~18 GiB for the OS. Set 1.0 only "
+                        "if you are willing to lose the box.")
     return p
 
 
@@ -123,6 +128,23 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[memprobe] torch {torch.__version__} cuda={torch.cuda.is_available()} "
           f"cap={torch.cuda.get_device_capability() if torch.cuda.is_available() else None}",
           flush=True)
+
+    # HARD CEILING. Learned the expensive way on 2026-08-17: GB10's CUDA pool *is* system
+    # memory, so an uncapped probe that OOMs does not fail politely — it drives MemAvailable to
+    # ~0, and sshd can no longer fork a session. The node stayed pingable with port 22 open and
+    # no banner for over an hour, and the probe process never exited on its own.
+    #
+    # Capping means the allocator raises OOM while the OS still has room to breathe, which is
+    # the difference between "we measured the limit" and "we lost the machine".
+    if torch.cuda.is_available() and 0 < args.max_mem_fraction < 1.0:
+        torch.cuda.set_per_process_memory_fraction(args.max_mem_fraction)
+        total = torch.cuda.get_device_properties(0).total_memory / GIB
+        print(f"[memprobe] memory ceiling: {args.max_mem_fraction:.0%} of {total:.2f} GiB "
+              f"= {total * args.max_mem_fraction:.2f} GiB "
+              f"(leaving {total * (1 - args.max_mem_fraction):.2f} GiB for the OS)", flush=True)
+    else:
+        print("[memprobe] WARNING: running with NO memory ceiling; an OOM here can take the "
+              "node offline", flush=True)
     print(f"[memprobe] baseline sys mem: {_sys_mem_gib()}", flush=True)
     print(f"[memprobe] plan: stages up to {args.stage!r}, seq_len={seq_len}, "
           f"freeze={args.freeze_policy}", flush=True)
@@ -234,13 +256,32 @@ def _finish(args, results: list[StageResult], code: int) -> int:
         "highest_stage_ok": next((r.stage for r in reversed(results) if r.ok), None),
         "exit_code": code,
         "hostname": os.uname().nodename if hasattr(os, "uname") else "unknown",
+        "max_mem_fraction": args.max_mem_fraction,
     }
     text = json.dumps(payload, indent=2)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"[memprobe] wrote {args.out}", flush=True)
-    print("[memprobe] RESULT " + json.dumps(payload["stages"][-1] if results else {}))
+    print("[memprobe] RESULT " + json.dumps(payload["stages"][-1] if results else {}), flush=True)
+
+    # Release explicitly before returning. On 2026-08-17 a probe wrote its results and then did
+    # not exit, holding ~116 GiB while the node was already starved — writing the file is not
+    # the same as giving the memory back, and the second one is what makes the box usable again.
+    try:
+        import gc
+
+        import torch
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        print("[memprobe] released allocator memory", flush=True)
+    except Exception as exc:  # noqa: BLE001 - teardown must never mask the real result
+        print(f"[memprobe] WARNING: cleanup failed: {type(exc).__name__}: {exc}", flush=True)
+
+    print("[memprobe] exiting", flush=True)
     return code
 
 

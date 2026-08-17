@@ -91,10 +91,33 @@ vendors, not a licensing question about the datasets.
 
 ### Q006 — The full-FT memory figure is arithmetic, not a measurement
 
-**Status:** Open — **inputs refined 2026-08-16**, conclusion still unmeasured.
+**Status:** Open — **single-node case MEASURED and settled 2026-08-17**; 2-node case still open.
 **Blocking Impact:** Medium
 **Needed For:** G1; the feasibility of full-parameter FT across 2 nodes.
-**Resolution Path:** TASK P1.003.
+**Resolution Path:** TASK P1.003, 2-node FSDP stage.
+
+### Measured 2026-08-17 on spark-1003 (run `phase1-memprobe-001`)
+
+`AutoModelForCausalLM`, bf16, gradient checkpointing **on**, seq_len 2048, batch 1:
+
+| Stage | Result | torch allocated |
+|---|---|---|
+| `weights` | ok | **50.10 GiB** (26,895,998,464 params × 2 B — exact) |
+| `grads` | **OOM** | **116.05 GiB** at a 121.69 GiB device capacity |
+
+**Full-parameter training does not fit on one node.** That is now a measurement, not arithmetic.
+
+Note the gap: weights + bf16 gradients predict 100.2 GiB, and the probe reached **116.05** before
+dying. So activations, backward workspace and allocator fragmentation cost roughly **16 GiB even
+with gradient checkpointing enabled and a short 2048-token sequence** — a term the original
+~155 GiB estimate omitted entirely. Any 2-node budget must carry it.
+
+Also established: on GB10 `torch` reports the device capacity as **121.69 GiB**, i.e. the whole
+unified pool. There is no separate VRAM, so a CUDA OOM on this hardware *is* system-memory
+exhaustion — see the incident in `notes/integrity-gaps.md` for why that matters operationally.
+
+**Still unmeasured:** whether full FT fits sharded across both nodes, and what the optimizer
+state actually costs (the `optim` stage never ran).
 
 The weight term is no longer an estimate. Read from `model.safetensors.index.json` on
 2026-08-16: **`total_size` = 55,562,855,904 bytes = 51.75 GiB, ~27.78 B params**, 1199 tensors
