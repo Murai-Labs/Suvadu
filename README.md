@@ -11,8 +11,13 @@ control that most personal-fine-tune projects never run.
 
 ## Current Phase
 
-**G0 — skeleton complete.** No training has been run. No data has been built. No claim in this
-repo is yet backed by a measurement.
+**G1 — training stack verified; nothing trained yet.**
+
+G0 approved 2026-08-16. The largest technical risk is retired: a transformers-v5 stack resolves
+Qwen3.8-27B and sees sm_121 on GB10, so the project does not re-scope to LoRA. What has *not*
+happened: no weights downloaded, no corpus built, no optimizer step run, no memory profiled, no
+evaluation of any model including the base. Every training-memory figure here is still
+arithmetic.
 
 ## Research Thesis
 
@@ -72,9 +77,11 @@ by adding a disclaimer.
 2× NVIDIA GB10 (DGX Spark), 121 GB unified memory each, 200G ConnectX-7 fabric measured at
 111 Gb/s RDMA / 13.6 GB/s NCCL all-reduce. Full-parameter FSDP across both nodes.
 
-Sizing note: Qwen3.8-27B in BF16 is ~54 GB of weights. With gradients and 8-bit optimizer state
-that is ~162 GB — more than one node holds, which is why this is a 2-node job and why LoRA
-(~65–75 GB, single node) exists as baseline B4 rather than as the default.
+Sizing note: the BF16 checkpoint is **51.75 GiB / ~27.78 B params** — read from
+`model.safetensors.index.json`, not estimated. With gradients and 8-bit optimizer state that is
+roughly **155 GiB** before activations and FSDP overhead, more than one node holds (121 GB ≈
+112.7 GiB). Hence a 2-node job, and hence LoRA (~65–75 GB, single node) exists as baseline B4
+rather than as the default. **The 155 GiB is arithmetic; only the 51.75 GiB is measured.**
 
 ## Repo Guide
 
@@ -103,4 +110,9 @@ Qwen3.8-27B is Apache-2.0.
 
 ## Status of every number in this README
 
-There are none yet. That is deliberate — at G0 the honest count of measurements is zero.
+Two are measured, read from the model's own files on 2026-08-16: the checkpoint is
+**51.75 GiB / ~27.78 B params**, and the layer split is **48 linear-attention / 16
+full-attention** of 64. Everything about *training* memory is arithmetic and labelled as such.
+
+Zero results have been measured, because nothing has been trained or evaluated. ε = 3.0 pp comes
+from a companion repo's measurement, cited, not from this project's.

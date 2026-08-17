@@ -185,3 +185,58 @@ Follow-up: `docs/RUNBOOK.md` rewritten with the verified relaunch command, which
 P1.005's precondition (capture the restore procedure *before* shutdown) ahead of schedule.
 TASK P1.005 retitled accordingly.
 Human Approval: N/A — correction of fact, reported to Ramchand 2026-08-16.
+
+---
+
+## DEC-0007 — G0 approved
+
+Date: 2026-08-16
+Task/Gate: G0
+Decision: G0 (Repository Skeleton) approved; Phase 1 training-stack bring-up unblocked.
+Rationale: All six Phase 0 tasks complete with evidence tabulated in `docs/GATE_G0_REVIEW.md`
+from artifacts re-read at the time of writing. 39 tests passing (19 config / 14 provenance /
+6 import); `CLAUDE.md` and `AGENTS.md` byte-identical by SHA256; 31 files tracked locally and 31
+on the remote, with `git check-ignore` confirming trackers and `notes/` are excluded.
+Alternatives Considered: N/A.
+Evidence / Source Docs: `docs/GATE_G0_REVIEW.md`, `tasks/atomic-task-list.md`, commit `a096d4d`.
+Measured Result: N/A (setup gate).
+Follow-up: P1.001.
+Human Approval: **Approved by Ramchand on 2026-08-16.**
+
+---
+
+## DEC-0008 — r0b0tlab datasets approved for use despite absent licences
+
+Date: 2026-08-16
+Task/Gate: G2 (bearing on G7)
+Decision: The seven `r0b0tlab/*` datasets are **approved for inclusion** in the training
+mixture, reversing the default-EXCLUDED posture recorded when Q005 was opened.
+
+Rationale: Ramchand approved them on 2026-08-16, stating that the dataset author is a friend who
+omitted the licence file rather than withheld it, and that he approves proceeding on that basis.
+That is the maintainer's call to make and it is recorded as made.
+
+Stated precisely, because G7 requires redistribution status **in writing** and this is not that:
+the approval is a *personal assurance relayed by the project owner*, not a licence grant. As of
+2026-08-16 the dataset pages display no licence. Nothing about training is blocked by this. What
+is affected is publication: a model card asserting its training data is redistributable would,
+today, be asserting something for which no artifact exists.
+
+Alternatives Considered:
+- Keep them excluded — rejected by Ramchand; the datasets are wanted and the omission is known
+  to be clerical.
+- Include silently and note nothing — rejected; G7 would then be adjudicated against a record
+  that does not mention the gap.
+
+Evidence / Source Docs: HF dataset pages fetched 2026-08-16, all showing no licence
+(`deepseek-v4-pro-0813-agentic`, `qwen3.8-max-glm5.2-kimi-k3-distillation`,
+`qwen3.8-max-distillation-50k`, `deepseek-hermes-reasoning-traces`,
+`nemotron-nano-hermes-traces`, `Hermes-OmniForge-Qwen36-27B-full-v0.3.0-unsloth`,
+`gemma-4-e4b-hermes-agent-traces-reformatted`). Q005 in `docs/RISKS_AND_OPEN_QUESTIONS.md`.
+Measured Result: N/A.
+Follow-up: **P2.003 is narrowed, not closed.** Its remaining job before G7 is to obtain one
+written confirmation from the author — a licence file added to the repos, or a message granting
+redistribution — and to record which. Training proceeds now regardless. Also unchanged: these
+are distillations of other vendors' model outputs, which is a separate ToS question from
+licensing and is not resolved by the author's permission.
+Human Approval: **Approved by Ramchand on 2026-08-16.**

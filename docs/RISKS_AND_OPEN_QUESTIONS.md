@@ -25,14 +25,18 @@ on SFT.
 
 ### Q002 — The training toolchain is unverified on aarch64 + sm_121
 
-**Status:** Open
-**Blocking Impact:** High
+**Status:** **Resolved 2026-08-16** — affirmatively.
+**Blocking Impact:** was High
 **Needed For:** G1; the entire project's feasibility as specified.
-**Resolution Path:** TASK P1.001. Unsloth v0.1.800-beta advertises Qwen3.8-27B fine-tuning and
-Unsloth docs state transformers v5 is required — but neither has been verified on GB10. The
-standing lab rule is that aarch64+Blackwell wheels are spotty and ML there is container-first.
-If the stack does not exist, the project re-scopes to LoRA (baseline B4 becomes the treatment)
-and that re-scope is recorded, not silently absorbed.
+**Resolution:** TASK P1.001 ran on `spark-1003`. Inside `nvcr.io/nvidia/pytorch:25.11-py3`:
+`torch 2.10.0a0+nv25.11`, `capability (12, 1)` = sm_121 on GB10, `transformers 5.15.0` and
+`accelerate 1.14.0` installed from PyPI on aarch64 **with no build step and no missing wheels**,
+and `AutoConfig.from_pretrained("Qwen/Qwen3.8-27B")` resolved `model_type: qwen3_5` without
+`trust_remote_code`. The project does not re-scope to LoRA on toolchain grounds. Full output in
+`configs/phase1/env-report.md`; decision in `docs/decisions/0001-training-stack.md`.
+
+**Residual:** this says the toolchain *imports*, not that a 27B step *fits*. That is Q006/P1.003.
+It also used runtime `pip install`, which is a provenance hole now tracked as TASK P1.007.
 
 ---
 
@@ -63,26 +67,51 @@ be hand-checked so false positives are not mistaken for a clean sweep.
 
 ### Q005 — Third-party datasets display no licence
 
-**Status:** Open
-**Blocking Impact:** Medium (High if publication proceeds)
-**Needed For:** G2, G7.
-**Resolution Path:** TASK P2.003. Checked 2026-08-16: `11-47/claude_opus_4.8_distill_5k` states
-Apache-2.0 (5,000 rows, instruction/response with `<think>` traces). The seven `r0b0tlab`
-datasets display **no licence at all**, and are distillations of other vendors' model outputs
-(`qwen3.8-max-glm5.2-kimi-k3`, `deepseek-v4-pro-agentic`, Hermes traces). Unlicensed datasets are
-EXCLUDED by default; including one requires an explicit recorded human decision.
+**Status:** Open — **narrowed 2026-08-16**, no longer blocks training.
+**Blocking Impact:** Low for training; **High for publication (G7)**.
+**Needed For:** G7.
+**Resolution Path:** Checked 2026-08-16: `11-47/claude_opus_4.8_distill_5k` states Apache-2.0
+(5,000 rows, instruction/response with `<think>` traces). The seven `r0b0tlab` datasets display
+**no licence at all**.
+
+Ramchand **approved their use on 2026-08-16** (DEC-0008), on the basis that the author is a
+friend who omitted the licence file rather than withheld it. That is his call and it is made;
+training proceeds with them included.
+
+What remains open is narrower and belongs to G7: a personal assurance is not an artifact. Before
+publication, TASK P2.003 must obtain **one written confirmation** — a licence file added to the
+dataset repos, or a message granting redistribution — and record which. Without it, a model card
+claiming redistributable training data would be asserting something no document supports.
+
+Separately unresolved and **not** addressed by the author's permission: these datasets are
+distillations of other vendors' model outputs, which is a terms-of-service question about those
+vendors, not a licensing question about the datasets.
 
 ---
 
-### Q006 — The 162 GB memory figure is arithmetic, not a measurement
+### Q006 — The full-FT memory figure is arithmetic, not a measurement
 
-**Status:** Open
+**Status:** Open — **inputs refined 2026-08-16**, conclusion still unmeasured.
 **Blocking Impact:** Medium
 **Needed For:** G1; the feasibility of full-parameter FT across 2 nodes.
-**Resolution Path:** TASK P1.003. The estimate (54 GB weights + 54 GB gradients + 54 GB 8-bit
-optimizer state) is computed from parameter counts and ignores activations, FSDP shard overhead,
-and the hybrid architecture's recurrent state. It must not be cited as measured. If the real
-profile does not fit, the README is corrected rather than the plan quietly changed.
+**Resolution Path:** TASK P1.003.
+
+The weight term is no longer an estimate. Read from `model.safetensors.index.json` on
+2026-08-16: **`total_size` = 55,562,855,904 bytes = 51.75 GiB, ~27.78 B params**, 1199 tensors
+across 18 shards. The earlier "54 GB" was close but was arithmetic from a rounded parameter
+count.
+
+Revised estimate: 51.75 (weights, bf16) + 51.75 (gradients, bf16) + ~51.75 (8-bit Adam, two
+states at 1 byte/param) ≈ **155 GiB**, before activations, gradient-checkpointing buffers, FSDP
+shard overhead, and the hybrid model's recurrent state. Still exceeds one node (121 GB ≈ 112.7
+GiB); still requires 2-node FSDP.
+
+**This remains a computation, not a profile, and must not be cited as measured.** Two levers
+discovered in P1.001 could change it materially and are untested: the checkpoint carries **333
+vision-tower tensors** and **13 MTP tensors** that a text-only SFT has no reason to train, and
+the config exposes a `language_model_only` flag. Freezing or excluding those removes them from
+the gradient and optimizer budget. If the real profile does not fit, the README is corrected
+rather than the plan quietly changed.
 
 ---
 

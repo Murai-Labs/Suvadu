@@ -9,7 +9,7 @@ exists produces results it cannot later defend.
 
 ## Gate Status
 
-Status: **Not yet approved.** Approval is recorded in `docs/DECISION_LOG.md`; this file preserves
+Status: **APPROVED 2026-08-16 by Ramchand** (DEC-0007). Phase 1 unblocked. This file preserves
 the review evidence.
 
 ## Required Evidence
@@ -73,10 +73,8 @@ State plainly what has *not* happened, so no reader infers progress from file ex
 
 ## Required Next Work Before Approval
 
-All Phase 0 tasks (P0.001–P0.006) are complete with the evidence tabulated above.
-
-**Awaiting human approval only.** Approval is Ramchand's to give and is not self-granted; until
-DEC-0006 is recorded, Phase 1 does not begin.
+None. All Phase 0 tasks (P0.001–P0.006) are complete with the evidence tabulated above, and
+approval was granted on 2026-08-16 (DEC-0007).
 
 ## Approval Template (paste into docs/DECISION_LOG.md when granted)
 

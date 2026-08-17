@@ -145,7 +145,10 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P0.006
 - **Blocking gate:** G1
 - **Estimated effort:** 4
-- **Done:** [ ]
+- **Done:** [x] **PASS 2026-08-16.** transformers 5.15.0 / accelerate 1.14.0 / torch
+  2.10.0a0+nv25.11, capability (12,1)=sm_121 on GB10, `model_type: qwen3_5` resolved, inside
+  `nvcr.io/nvidia/pytorch:25.11-py3`. Decision recorded in `docs/decisions/0001-training-stack.md`.
+  Q002 resolved. Spawned P1.007 (image pinning).
 
 #### TASK P1.002: Download BF16 Qwen3.8-27B to the cluster
 - **What:** The trainable BF16 base checkpoint resident on `spark-1003`, hash-verified.
@@ -240,6 +243,28 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P1.003, P1.004, P1.005
 - **Blocking gate:** G1
 - **Estimated effort:** 2
+- **Done:** [ ]
+
+#### TASK P1.007: Build and pin the training image
+- **What:** A tagged, reproducible training image with a lockfile — no runtime `pip install`.
+- **Where:** `docker/Dockerfile.train`, `configs/phase1/requirements.lock`
+- **Why:** spec §7 · AGENTS.md §2.4 · P1.001 installed `transformers` at container start, which
+  resolves whatever PyPI serves that day. Two runs a week apart would report the same
+  "environment" while differing in library version — a provenance hole that no manifest catches,
+  because the manifest would faithfully record two different environments as both correct.
+- **Inputs:** P1.001
+- **Acceptance criteria:**
+  1. `FROM nvcr.io/nvidia/pytorch:25.11-py3` with every added package pinned to an exact version.
+  2. Image is built on **both** nodes (never `docker save` a ~20 GB image across the link) and
+     tagged identically, with matching image IDs recorded.
+  3. `pip freeze` inside the built image is committed as `configs/phase1/requirements.lock`.
+  4. A container from the image reproduces the P1.001 probe output exactly.
+- **Evidence of completion:** image ID on both nodes + committed lockfile.
+- **Validation:** re-run the P1.001 reproduce block against the pinned image; diff the output.
+- **Measurements / logs:** image ID, digest, build date.
+- **Dependencies:** P1.001
+- **Blocking gate:** G1
+- **Estimated effort:** 3
 - **Done:** [ ]
 
 ---
