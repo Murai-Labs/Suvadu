@@ -80,6 +80,48 @@ def test_unknown_policy_raises_before_doing_anything():
         summarise_trainable(REAL_NAMES, "freeze_evrything")
 
 
+CAUSALLM_NAMES = [
+    # AutoModelForCausalLM instantiates the text tower UNWRAPPED. Verified on a meta device
+    # 2026-08-17: 851 tensors, 26,895,998,464 params, zero vision, zero MTP.
+    "model.embed_tokens.weight",
+    "model.layers.0.linear_attn.dt_bias",
+    "model.layers.0.linear_attn.in_proj_qkv.weight",
+    "model.layers.3.self_attn.q_proj.weight",
+    "model.norm.weight",
+    "lm_head.weight",
+]
+
+
+def test_causallm_naming_is_classified_as_language_model():
+    """Regression guard for the 2026-08-17 near-miss.
+
+    AutoModelForCausalLM names params `model.layers.*`, not `model.language_model.layers.*`.
+    An earlier classifier keyed only on the wrapped form and filed all 850 language tensors as
+    OTHER. Every policy trains OTHER, so the trainable count looked correct and only the group
+    breakdown revealed it.
+    """
+    for name in CAUSALLM_NAMES:
+        if name.startswith("lm_head"):
+            continue
+        assert classify_parameter(name) is ParamGroup.LANGUAGE_MODEL, name
+
+    s = summarise_trainable(CAUSALLM_NAMES, DEFAULT_POLICY)
+    assert s.counts_by_group.get("language_model") == 5
+    assert s.counts_by_group.get("lm_head") == 1
+    assert "other" not in s.counts_by_group, "text-only names must not fall through to OTHER"
+
+
+def test_both_naming_schemes_agree_on_group_membership():
+    """The same weight must classify identically whether wrapped or unwrapped."""
+    pairs = [
+        ("model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+         "model.layers.0.linear_attn.in_proj_qkv.weight"),
+        ("model.language_model.norm.weight", "model.norm.weight"),
+    ]
+    for wrapped, unwrapped in pairs:
+        assert classify_parameter(wrapped) is classify_parameter(unwrapped) is ParamGroup.LANGUAGE_MODEL
+
+
 def test_recurrent_layers_are_language_model_not_other():
     """The 48 linear_attention layers must be trainable under the default policy.
 

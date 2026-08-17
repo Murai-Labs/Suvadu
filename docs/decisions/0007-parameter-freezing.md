@@ -76,6 +76,37 @@ already deferred), and a marginal memory fit is a live constraint today.
 3. **Frozen ≠ absent.** Frozen parameters still occupy weight memory. This decision reduces
    gradient and optimizer state, not the 51.75 GiB of weights. P1.003 measures the real saving.
 
+## Amendment, 2026-08-17 — measured on a meta device, and it changes two claims
+
+Loading the checkpoint through each auto-class and enumerating parameters:
+
+| Auto-class | Tensors | Params | vision | **mtp** |
+|---|---|---|---|---|
+| `AutoModelForCausalLM` | 851 | 26,895,998,464 | 0 | **0** |
+| `AutoModelForImageTextToText` | 1184 | 27,356,728,560 | 333 | **0** |
+
+**1. The MTP head is not loaded by either class.** This section originally reasoned about
+whether to *train or freeze* it. That framing was wrong: transformers does not instantiate the
+13 `mtp.*` tensors at all, so a model saved from either path **omits the MTP head entirely**
+rather than shipping a drifted one. The `vision_only` policy's stated purpose — "keep the MTP
+head aligned with the updated target" — is therefore unachievable through this loader as written.
+The policy remains defined and correct in code (it would apply if the head were ever loaded), but
+it currently has nothing to act on. Consequence for publication: the model card must say the MTP
+head is **absent**, not merely stale, and the speculative-decoding recipe measured on the base
+model does not apply at all without deliberately copying the head across.
+
+**2. `AutoModelForCausalLM` makes the vision freeze moot** — it never materialises the vision
+tower. That is 460,730,096 fewer parameters (~0.86 GiB in bf16) and no freezing required. It also
+means a model saved from that path is **text-only**, which is a change to the published artifact,
+not just an optimisation. That choice is deferred to a separate decision with the probe numbers
+attached; it is not settled here.
+
+**3. The classifier had a latent bug this exposed.** `AutoModelForCausalLM` names parameters
+`model.layers.*`, not `model.language_model.layers.*`. The original classifier keyed only on the
+wrapped form, so all 850 language-model tensors fell through to `OTHER`. Every current policy
+trains `OTHER`, so the trainable *count* was correct and only the group breakdown revealed it.
+Fixed in `freeze.py`; regression tests added for both naming schemes.
+
 ## Verification
 
 `tests/test_freeze.py` — **11 tests, all passing** (suite total 82). Parameter names are real prefixes read from

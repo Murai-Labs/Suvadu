@@ -60,11 +60,30 @@ class UnknownFreezePolicy(ValueError):
     """Raised for a policy name that is not in FREEZE_POLICIES."""
 
 
-def classify_parameter(name: str) -> ParamGroup:
-    """Map a checkpoint parameter name to its sub-network.
+#: Suffix-free prefixes that identify language-model parameters when the model is loaded
+#: WITHOUT the multimodal wrapper. Verified on a meta device, 2026-08-17.
+_TEXT_ONLY_PREFIXES = ("model.layers.", "model.embed_tokens", "model.norm", "layers.")
 
-    Keyed on the prefixes actually present in this checkpoint, verified from its safetensors
-    index — not on guesses about what a multimodal model "usually" looks like.
+
+def classify_parameter(name: str) -> ParamGroup:
+    """Map a parameter name to its sub-network.
+
+    **Two naming schemes exist for the same weights**, and this cost a near-miss on 2026-08-17.
+    The checkpoint and `AutoModelForImageTextToText` use the wrapped form::
+
+        model.language_model.layers.0.linear_attn.in_proj_qkv.weight
+        model.visual.blocks.0.attn.qkv.weight
+
+    but `AutoModelForCausalLM` instantiates the text tower alone, unwrapped::
+
+        model.layers.0.linear_attn.dt_bias
+        model.embed_tokens.weight
+
+    An earlier version keyed only on the wrapped form, so under `AutoModelForCausalLM` all 850
+    language-model tensors fell through to ``OTHER``. Every current policy happens to train
+    ``OTHER``, so the *outcome* was right and the *reasoning* was wrong — the failure was
+    invisible in the trainable count and visible only in the group breakdown. That is precisely
+    the kind of latent misclassification a future policy would silently inherit.
     """
     if name.startswith("mtp."):
         return ParamGroup.MTP
@@ -73,6 +92,8 @@ def classify_parameter(name: str) -> ParamGroup:
     if ".visual." in name or name.startswith("visual.") or name.startswith("model.visual."):
         return ParamGroup.VISION
     if name.startswith("model.language_model.") or name.startswith("language_model."):
+        return ParamGroup.LANGUAGE_MODEL
+    if name.startswith(_TEXT_ONLY_PREFIXES):
         return ParamGroup.LANGUAGE_MODEL
     return ParamGroup.OTHER
 

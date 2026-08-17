@@ -101,6 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stage", choices=STAGES, default="step",
                    help="highest stage to attempt; earlier stages always run")
     p.add_argument("--freeze-policy", default=DEFAULT_POLICY)
+    p.add_argument("--model-class", choices=("causal_lm", "image_text_to_text"),
+                   default="causal_lm",
+                   help="causal_lm loads the text tower alone (26.90B, no vision, no MTP); "
+                        "image_text_to_text keeps the vision tower (27.36B). Neither loads the "
+                        "MTP head. Measured on a meta device 2026-08-17.")
     p.add_argument("--seq-len", type=int, default=0, help="override config max_seq_len")
     p.add_argument("--out", default="", help="write results JSON here")
     return p
@@ -127,20 +132,35 @@ def main(argv: list[str] | None = None) -> int:
     # ---- stage: weights -----------------------------------------------------------------
     t0 = time.monotonic()
     try:
-        from transformers import AutoModelForCausalLM
-        model = AutoModelForCausalLM.from_pretrained(
+        if args.model_class == "causal_lm":
+            from transformers import AutoModelForCausalLM as _Cls
+        else:
+            from transformers import AutoModelForImageTextToText as _Cls
+        model = _Cls.from_pretrained(
             args.model_path, dtype=getattr(torch, cfg.dtype), device_map=None,
         ).to("cuda")
         summary = apply_freeze_policy(model, args.freeze_policy)
+
+        # Apply what the config asks for. Measuring with checkpointing off while the config says
+        # on would produce an activation figure that describes a run nobody intends to launch.
+        ckpt_enabled = False
+        if cfg.gradient_checkpointing:
+            model.gradient_checkpointing_enable()
+            model.config.use_cache = False   # incompatible with checkpointing; warns and slows
+            ckpt_enabled = getattr(model, "is_gradient_checkpointing", True)
+
         n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
         n_total = sum(p.numel() for p in model.parameters())
         results.append(_record(
             "weights", t0, True,
+            model_class=type(model).__name__,
             params_total=n_total, params_trainable=n_train,
             params_frozen=n_total - n_train,
             trainable_fraction=round(n_train / n_total, 4),
             freeze_policy=summary.policy,
+            trained_tensors=summary.counts_by_group,
             frozen_tensors=summary.frozen_by_group,
+            gradient_checkpointing=ckpt_enabled,
         ))
     except Exception as exc:  # noqa: BLE001 - the failure IS the measurement
         results.append(_record("weights", t0, False))
