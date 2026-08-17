@@ -1,0 +1,44 @@
+# Suvadu training image (TASK P1.007)
+#
+# Build on EACH node natively. Never `docker save` a ~20 GB image across the cluster link —
+# the added layer here is small, so a native rebuild is faster than a transfer.
+#
+#   sudo docker build -f docker/Dockerfile.train -t suvadu-train:2026-08-16 .
+#
+# Base is verified: P1.001 confirmed torch 2.10.0a0+b558c986e8.nv25.11 in this image reports
+# capability (12, 1) = sm_121 on GB10. Do not "upgrade" the base casually — the torch build is
+# the hardest part of this platform to get right and it is already correct here.
+
+FROM nvcr.io/nvidia/pytorch:25.11-py3
+
+# Pinned to the exact versions P1.001 resolved AND verified on aarch64 (2026-08-16).
+# This closes the provenance hole in P1.001, which installed unpinned: an unpinned install
+# resolves to whatever PyPI serves that day, so two runs a week apart would record the same
+# "environment" while differing underneath.
+#
+# Only these two are pinned, because only these two were actually verified on this hardware.
+# Everything else is left to the resolver and captured in the lockfile below rather than
+# pinned to a number nobody checked — a guessed pin either fails the build or, worse, silently
+# installs something untested while looking deliberate.
+RUN pip install --no-cache-dir \
+        "transformers==5.15.0" \
+        "accelerate==1.14.0" \
+        pyyaml
+
+# Freeze whatever actually resolved into the image, so the full environment travels with the
+# artifact instead of living in a file someone has to remember to regenerate. P1.007 copies this
+# out to configs/phase1/requirements.lock and commits it; from then on the lock is the pin.
+RUN pip freeze > /opt/suvadu-requirements.lock
+
+WORKDIR /workspace
+ENV PYTHONPATH=/workspace/src
+
+# Sanity check at build time: if the base ever stops seeing the GPU correctly, fail here rather
+# than three hours into a training run. Note this runs without --gpus, so it checks the import
+# and the build target, not device visibility.
+RUN python -c "import torch, transformers, accelerate; \
+print('torch', torch.__version__); \
+print('transformers', transformers.__version__); \
+print('accelerate', accelerate.__version__)"
+
+CMD ["python", "-m", "suvadu.cli.train", "--help"]

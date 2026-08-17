@@ -201,7 +201,22 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P0.003, P0.004, P1.001
 - **Blocking gate:** G1
 - **Estimated effort:** 8
-- **Done:** [ ]
+- **Done:** [ ] — **PARTIAL, 2026-08-16.** Do not mark complete; two pieces are genuinely absent.
+  - **Done and tested (43 new tests, suite at 82):** `--plan` mode that validates and prints the
+    plan with no GPU/weights/torch; provenance written before step 1 with a refusal to start
+    otherwise; freeze policy (`src/suvadu/train/freeze.py`, DEC-D0007) keyed on the checkpoint's
+    *real* tensor names; `ProgressReporter` emitting step/total + elapsed + ETA + loss +
+    throughput + peak memory, capped at 100 steps by construction; `ResumeState` with atomic
+    writes that refuses a resume across a changed config/seed/data and reports every mismatched
+    identifier at once; synthetic batch source so P1.003 can profile memory before any corpus.
+  - **Not done — criterion 1 (loss) and criterion 4 (placeholder-free) both fail today:**
+    (a) optimizer + FSDP wiring is deliberately deferred to **P1.003**, which measures what
+    actually fits before a schedule is fixed; the loop currently exercises data, freeze and
+    reporting only, and reports no loss.
+    (b) `suvadu.train.data.corpus_batches` raises `SUVADU-PLACEHOLDER` — it is blocked on the
+    **G2** data freeze, and writing it now would encode a guess about an unfrozen schema (Q007).
+  - Consequence: the pre-run grep gate is **not** satisfied for a corpus run. It *is* satisfied
+    for `--data synthetic`, which is the only run P1.003 needs.
 
 #### TASK P1.005: Stop the `vllm-gemma` servers and confirm the cluster is free
 - **What:** Executed shutdown of both Gemma servers and confirmation the memory is released.
@@ -265,7 +280,14 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Dependencies:** P1.001
 - **Blocking gate:** G1
 - **Estimated effort:** 3
-- **Done:** [ ]
+- **Done:** [ ] — **Dockerfile written 2026-08-16 (`docker/Dockerfile.train`); build deferred.**
+  Build deliberately not run yet: node 2 lacks the NGC base and would need a 19.5 GB pull while
+  it is mid-way through a 51.75 GiB weight download, slowing both for no gain. Build once the
+  downloads land. Only `transformers==5.15.0` and `accelerate==1.14.0` are pinned — the two
+  versions actually verified on this hardware; the rest is resolved at build and captured in
+  the lockfile, rather than pinned to numbers nobody checked.
+- **Note:** `bitsandbytes` is deliberately **absent** from the image pending Q010 — the
+  `adamw_8bit` assumption underpinning the whole memory argument is unverified on aarch64.
 
 ---
 

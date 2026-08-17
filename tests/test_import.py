@@ -56,9 +56,38 @@ def test_no_deprecated_torch_dtype_in_source():
     assert not offenders, f"torch_dtype found in {offenders}"
 
 
-def test_no_unfilled_placeholder_sentinels_in_source():
-    offenders = [
-        p for p in (REPO_ROOT / "src").rglob("*.py")
-        if "SUVADU-PLACEHOLDER" in p.read_text(encoding="utf-8")
-    ]
-    assert not offenders, f"placeholder sentinel present in reachable code: {offenders}"
+def test_placeholder_sentinels_are_always_raises():
+    """AGENTS.md 2.3 prescribes the sentinel; what it forbids is a *silent* placeholder.
+
+    So the check is not "no sentinel exists" — an earlier version of this test asserted that and
+    was wrong, since it outlawed the mechanism the contract mandates. The check is that every
+    sentinel sits inside a raise, never beside a return. A `return 0.0  # TODO` is the failure
+    mode; `raise NotImplementedError("SUVADU-PLACEHOLDER: ...")` is the required alternative.
+
+    The pre-run gate is separate and lives in docs/RUNBOOK.md: before any run,
+    `grep -r SUVADU-PLACEHOLDER src` must be empty *for code that run reaches*.
+    """
+    bad = []
+    for path in (REPO_ROOT / "src").rglob("*.py"):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            if "SUVADU-PLACEHOLDER" not in line:
+                continue
+            window = " ".join(lines[max(0, i - 3):i + 1])
+            if "raise NotImplementedError" not in window:
+                bad.append(f"{path.name}:{i + 1}")
+    assert not bad, f"placeholder sentinel not inside a raise: {bad}"
+
+
+def test_placeholder_inventory_is_known():
+    """Enumerate every deferred code path, so none is forgotten before a gate.
+
+    Update this list deliberately when a placeholder is implemented or added.
+    """
+    found = {
+        path.name
+        for path in (REPO_ROOT / "src").rglob("*.py")
+        if "SUVADU-PLACEHOLDER" in path.read_text(encoding="utf-8")
+    }
+    # data.py: corpus loader, blocked on the G2 data freeze.
+    assert found == {"data.py"}, f"placeholder inventory changed: {sorted(found)}"

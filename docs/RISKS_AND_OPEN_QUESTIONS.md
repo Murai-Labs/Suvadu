@@ -151,3 +151,30 @@ though quality should hold since rejections resample.
 `gate/up/down` does not mean the same thing here as on a standard dense transformer — 48 of 64
 layers are recurrent. Target modules must be chosen deliberately and the choice justified, or the
 B4 comparison is not interpretable.
+
+---
+
+### Q010 — `adamw_8bit` assumes bitsandbytes works on aarch64 + sm_121
+
+**Status:** Open — surfaced 2026-08-16 while writing the training image.
+**Blocking Impact:** **High.** The entire 2-node memory argument depends on it.
+**Needed For:** G1 (P1.003), and the feasibility of full-parameter FT at all.
+**Resolution Path:** P1.003 must confirm an 8-bit optimizer actually initializes on GB10 before
+the memory profile means anything.
+
+The ~155 GiB estimate assumes optimizer state of ~1 byte per parameter per moment — i.e. 8-bit
+Adam. Standard fp32 AdamW would be **4 bytes × 2 moments = ~222 GiB of optimizer state alone**,
+which does not fit across both nodes under any arrangement. So the 8-bit optimizer is not a
+tuning preference here; it is load-bearing.
+
+`bitsandbytes` is the usual provider and its aarch64 + Blackwell support is exactly the kind of
+thing the standing "wheels are spotty" rule warns about. It was **not** installed or tested in
+P1.001, and is deliberately not pinned in `docker/Dockerfile.train` for that reason.
+
+Fallbacks if it does not work, in rough order of preference: torch's fused AdamW with bf16
+optimizer states; Adafactor (no second moment, much smaller state); optimizer-state CPU offload
+via FSDP; and finally re-scoping to LoRA, where the optimizer state is negligible because
+almost nothing is trainable.
+
+`configs/phase1/smoke.yaml` sets `optimizer: adamw_8bit`, so this assumption is at least
+explicit and greppable rather than buried in a framework default.

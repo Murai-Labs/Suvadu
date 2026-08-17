@@ -1,0 +1,39 @@
+# Phase 1 smoke / memory-probe config (TASK P1.003).
+#
+# This config exists to answer ONE question: does a full-parameter optimizer step on
+# Qwen3.8-27B fit across two GB10 nodes? It is not a training run and produces no citable
+# metric — src/suvadu/train/data.py refuses to report metrics from synthetic data.
+#
+# corpus_hash carries an explicit marker rather than a real digest because no corpus exists
+# until G2. The field is required by the config contract precisely so that a run can never be
+# ambiguous about what it consumed; naming the absence is the honest way to satisfy it.
+
+schema_version: 1
+arm: "smoke"
+run_id: "phase1-memprobe-001"
+
+base_model: "Qwen/Qwen3.8-27B"
+base_revision: "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+dtype: "bfloat16"
+
+corpus_path: "SYNTHETIC-NO-CORPUS"
+corpus_hash: "synthetic-no-corpus-p1003-memory-probe"
+
+# 8192 rather than the model's 262144 native context: the probe measures whether the *weights,
+# gradients and optimizer state* fit. Activation memory scales with sequence length, so a long
+# probe would conflate the two. Longer sequences get measured separately once the base fit is
+# known to work at all.
+max_seq_len: 8192
+
+regime: "full_ft"
+seed: 42
+epochs: 1
+learning_rate: 0.00001
+
+# Smallest possible batch. The probe is about the fixed cost of the model, not throughput.
+per_device_batch_size: 1
+gradient_accumulation_steps: 1
+
+gradient_checkpointing: true
+optimizer: "adamw_8bit"
+log_every_n_steps: 1
