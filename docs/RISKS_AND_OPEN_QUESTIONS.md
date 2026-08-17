@@ -91,14 +91,42 @@ vendors, not a licensing question about the datasets.
 
 ### Q006 — The full-FT memory figure is arithmetic, not a measurement
 
-**Status:** Open — **single-node case MEASURED and settled 2026-08-17**; 2-node case still open.
-**Blocking Impact:** Medium
-**Needed For:** G1; the feasibility of full-parameter FT across 2 nodes.
-**Resolution Path:** TASK P1.003, 2-node FSDP stage.
+**Status:** **RESOLVED 2026-08-17.** Full-parameter training **fits** on 2 nodes at seq_len 2048.
 
-### Measured 2026-08-17 on spark-1003 (run `phase1-memprobe-001`)
+### Final answer (run `fsdp6-torchao`, both nodes, exit 0)
 
-`AutoModelForCausalLM`, bf16, gradient checkpointing **on**, seq_len 2048, batch 1:
+```
+load          366.5s   alloc = 50.97 GiB
+shard           5.6s   alloc = 25.50 GiB
+optim_init      3.5s   alloc = 25.50 GiB
+step1_forward   7.0s   alloc = 34.52 GiB   (+9.02)
+step1_backward 32.0s   alloc = 51.55 GiB
+step1_optim    98.5s   alloc = 77.06 GiB   (8-bit state materialises here)
+step2          36.0s
+step3          44.7s
+PEAK ALLOCATED = 88.83 GiB    ceiling 111.95    device 121.69
+```
+
+**It fits, with ~23 GiB of allocator headroom.** Config: `AutoModelForImageTextToText`, bf16,
+vision frozen, gradient checkpointing **actually engaged**, `torchao.optim.AdamW8bit`, FSDP2
+across 2 nodes, batch 1 × seq 2048 per rank.
+
+⚠️ **But the system ran close to the edge that torch cannot see.** During steps 2–3,
+`MemAvailable` fell to **3.95 and 3.68 GiB** while torch reported only 55.05 GiB allocated —
+so roughly 60 GiB was held outside the allocator (CUDA context, NCCL buffers, reserved-but-
+unallocated pool). The torch ceiling is necessary and **not sufficient**; `/proc/meminfo` is the
+binding constraint on this hardware. Raising `--max-mem-fraction` further would be unsafe
+despite the apparent 23 GiB of allocator headroom.
+
+**Still to resolve (moved to Q011):** throughput. Steady-state step is **40.39 s for 4096 global
+tokens ≈ 101 tokens/s**, which has severe schedule consequences.
+
+### How this was reached — the single-node result that forced 2-node sharding
+
+`AutoModelForCausalLM`, bf16, seq_len 2048, batch 1. **Correction 2026-08-17:** this run was
+recorded as "gradient checkpointing on", and the flag was set — but `memprobe.py` shares the
+`model.train()` omission found later in `fsdp_probe.py`, so checkpointing **did not engage**.
+The numbers below are therefore *without* effective checkpointing.
 
 | Stage | Result | torch allocated |
 |---|---|---|
@@ -108,16 +136,21 @@ vendors, not a licensing question about the datasets.
 **Full-parameter training does not fit on one node.** That is now a measurement, not arithmetic.
 
 Note the gap: weights + bf16 gradients predict 100.2 GiB, and the probe reached **116.05** before
-dying. So activations, backward workspace and allocator fragmentation cost roughly **16 GiB even
-with gradient checkpointing enabled and a short 2048-token sequence** — a term the original
-~155 GiB estimate omitted entirely. Any 2-node budget must carry it.
+dying — about **16 GiB** of activations and workspace. Originally written up as "even with
+gradient checkpointing enabled"; that was wrong, since checkpointing was not engaging (see the
+correction above). The 2-node run later measured the checkpointed forward at **+9.02 GiB**.
+
+**The single-node conclusion is unaffected and does not depend on this.** Weights (50.10) +
+gradients (50.10) + 8-bit optimizer state (~50.10) = **~150 GiB against a 121.69 GiB device**.
+Full-parameter training cannot fit on one node whatever the activation term does.
 
 Also established: on GB10 `torch` reports the device capacity as **121.69 GiB**, i.e. the whole
 unified pool. There is no separate VRAM, so a CUDA OOM on this hardware *is* system-memory
 exhaustion — see the incident in `notes/integrity-gaps.md` for why that matters operationally.
 
-**Still unmeasured:** whether full FT fits sharded across both nodes, and what the optimizer
-state actually costs (the `optim` stage never ran).
+*(At the time this single-node section was written, the 2-node case and the optimizer-state
+cost were both unmeasured. Both are now answered above: it fits, and 8-bit optimizer state
+materialises during the first `.step()`, taking peak allocation from 51.55 to 77.06 GiB.)*
 
 The weight term is no longer an estimate. Read from `model.safetensors.index.json` on
 2026-08-16: **`total_size` = 55,562,855,904 bytes = 51.75 GiB, ~27.78 B params**, 1199 tensors
@@ -238,3 +271,51 @@ almost nothing is trainable.
 
 `configs/phase1/smoke.yaml` sets `optimizer: adamw_8bit`, so this assumption is at least
 explicit and greppable rather than buried in a framework default.
+
+---
+
+### Q011 — Measured throughput makes full-parameter training impractical at corpus scale
+
+**Status:** Open — **the central planning risk of the project.** Raised 2026-08-17 the moment
+P1.003 produced a real number.
+**Blocking Impact:** **High.** Affects G4 arm design, G5 launch approval, and whether the
+project's chosen regime is viable at all.
+**Needed For:** G5; realistically also G4, since G4 requires four training arms plus a treatment.
+
+**Measured** (run `fsdp6-torchao`, 2 nodes, batch 1 x seq 2048 per rank):
+
+| | |
+|---|---|
+| steady-state step | **40.39 s** (first step 98.6 s — includes optimizer-state allocation) |
+| tokens per step, global | **4,096** |
+| **throughput** | **~101 tokens/s** |
+| implied per day | **~8.8 M tokens/day** |
+
+**Computed consequences** (arithmetic from the measurement, not themselves measured):
+
+| Corpus | 1 epoch | 3 epochs |
+|---|---|---|
+| 50 M tokens | ~5.7 days | ~17 days |
+| 100 M tokens | ~11.4 days | ~34 days |
+| 200 M tokens | ~23 days | ~68 days |
+
+The corpus token count is not yet known (P2.001), but the July export was ~202k messages, so
+100 M+ tokens is the plausible range. **At 3 epochs that is over a month of exclusive
+cluster time for a single arm** — and G4 requires B1, B3, B4 and a treatment arm before the main
+run is even authorised.
+
+**Levers, in rough order of expected value:**
+
+1. **More tokens per step.** Peak was 88.83 GiB against a 111.95 GiB ceiling. Communication cost
+   per step is roughly fixed (~150 GiB of FSDP traffic at a measured 11.55 GB/s ~= 13 s), so
+   doubling tokens per step should improve throughput substantially rather than linearly costing
+   time. Constrained by the `MemAvailable` headroom above, not by the allocator ceiling.
+2. **Fewer epochs.** 3 is a convention here, not a requirement derived from anything.
+3. **Shorter G4 arms.** Already the plan — the baselines must be matched to each other, not
+   full-length.
+4. **Re-scope the regime to LoRA.** Baseline B4 exists precisely to test whether full-parameter
+   training earns its cost. If it does not, B4 becomes the recipe and the schedule collapses by
+   an order of magnitude.
+
+**Resolution path:** re-run the probe at larger tokens-per-step to find the throughput knee, then
+size the corpus and epoch count against a stated cluster-time budget before G5.

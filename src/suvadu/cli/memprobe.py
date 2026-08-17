@@ -163,13 +163,20 @@ def main(argv: list[str] | None = None) -> int:
         ).to("cuda")
         summary = apply_freeze_policy(model, args.freeze_policy)
 
-        # Apply what the config asks for. Measuring with checkpointing off while the config says
-        # on would produce an activation figure that describes a run nobody intends to launch.
+        # model.train() BEFORE enabling checkpointing. `from_pretrained` returns eval mode, and
+        # HF's checkpointed layers branch on `gradient_checkpointing and self.training` — with
+        # training False the flag is set and the code path never runs. This module carried that
+        # bug for its original single-node run (2026-08-17), so the ~16 GiB activation figure
+        # from that run was measured WITHOUT effective checkpointing. Corrected in
+        # docs/RISKS_AND_OPEN_QUESTIONS.md Q006 rather than silently restated.
+        model.train()
+
         ckpt_enabled = False
         if cfg.gradient_checkpointing:
             model.gradient_checkpointing_enable()
             model.config.use_cache = False   # incompatible with checkpointing; warns and slows
-            ckpt_enabled = getattr(model, "is_gradient_checkpointing", True)
+            ckpt_enabled = bool(getattr(model, "is_gradient_checkpointing", False)
+                                and model.training)
 
         n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
         n_total = sum(p.numel() for p in model.parameters())
