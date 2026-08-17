@@ -5,8 +5,13 @@
 # private source code and client-adjacent work. Nothing trace-derived is ever committed.
 
 # ---- Trace-derived and merged corpora: NEVER commit ----
-data/
-corpus/
+# Anchored with a leading slash so these match ONLY at the repo root. An unanchored `data/`
+# matches any directory of that name at any depth, which silently swallowed the package source
+# at src/suvadu/data/ on 2026-08-16 — the file was written, staged with `git add -A`, and simply
+# never appeared. Ignore rules that are too broad fail quietly; that is what makes them
+# dangerous.
+/data/
+/corpus/
 *.jsonl
 *.parquet
 *.arrow
