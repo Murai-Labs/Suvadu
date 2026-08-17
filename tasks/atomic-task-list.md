@@ -249,6 +249,23 @@ G5 launch → G6 capability → G7 memorization/publication.
 - **Note:** the two servers are **independent single-node deployments**, not a TP=2 pair. Stop
   each separately; neither depends on the other. The unrelated DeepSeek-V4-Flash stack at
   `~/deepseek-v4/` (port 8888, `--headless` on rank 1) is **not running** and is not in scope.
+
+**Pre-shutdown state, verified 2026-08-17 immediately before executing:**
+
+| | spark-1003 | spark-e7ec |
+|---|---|---|
+| Container | `vllm-gemma` up 3 days | `vllm-gemma` up 3 days |
+| Image | `vllm-node-main:latest` | `vllm-node-main:latest` |
+| Memory used | 110 / 121 GB | 111 / 121 GB |
+| `/v1/models` | responds `gemma-4-31B-it` | responds `gemma-4-31B-it` |
+| Restart policy | `no` | `no` |
+
+Restore command captured and verified in `docs/RUNBOOK.md` **before** shutdown, per criterion 1.
+
+**Open item carried into the shutdown, deliberately unresolved:** what consumes this endpoint was
+asked and not answered. Ramchand instructed proceeding regardless on 2026-08-17, which is his
+call to make; recorded here so that if something downstream breaks, the cause is documented
+rather than mysterious. Because `restart=no`, nothing restores it automatically.
 - **Evidence of completion:** RUNBOOK restore section + pasted `free -g` output.
 - **Validation:** `ssh -T -n Murailabs-Spark "free -g"` on both nodes.
 - **Measurements / logs:** available memory per node, timestamp.

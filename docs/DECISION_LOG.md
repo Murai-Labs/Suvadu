@@ -240,3 +240,38 @@ redistribution — and to record which. Training proceeds now regardless. Also u
 are distillations of other vendors' model outputs, which is a separate ToS question from
 licensing and is not resolved by the author's permission.
 Human Approval: **Approved by Ramchand on 2026-08-16.**
+
+---
+
+## DEC-0009 — Gemma endpoints stopped to free the cluster for training
+
+Date: 2026-08-17
+Task/Gate: G1 (P1.005)
+Decision: Stop both `vllm-gemma` containers (`google/gemma-4-31B-it`), freeing ~110 GB per node
+for the P1.003 memory probe and subsequent training.
+
+Rationale: Full-parameter SFT of Qwen3.8-27B needs roughly 155 GiB across the two nodes. Each
+node had 110–111 GB of its 121 GB held by Gemma. The two workloads cannot coexist. Shutdown was
+deferred from 2026-08-16 until the weights were resident and a training harness existed, so the
+endpoints were not lost during CPU-only setup — that deferral held for ~25 hours and cost nothing.
+
+Alternatives Considered:
+- Stop one node only — viable, since the two servers are independent (DEC-0006), and it would
+  keep an endpoint alive. Rejected because full-parameter 27B training needs both nodes; this
+  option would only work if the project re-scoped to LoRA.
+- Defer further — rejected by Ramchand on 2026-08-17.
+
+**Unresolved at the time of the decision, and recorded as such:** the question "what consumes
+this endpoint, and is anything pointed at it?" was put to Ramchand and not answered before the
+instruction to proceed. That is his call to make and it was made. It is noted here so that if
+something downstream breaks, the cause is documented rather than discovered. `restart=no` means
+nothing brings Gemma back automatically; restoring it is a deliberate act using the verified
+command in `docs/RUNBOOK.md`.
+
+Evidence / Source Docs: pre-shutdown state table in `tasks/atomic-task-list.md` (P1.005);
+verified restore command in `docs/RUNBOOK.md`.
+Measured Result: recorded post-shutdown in the same task entry.
+Follow-up: P1.007 (build pinned image), then P1.003 (memory probe — settles Q006 and Q010).
+Restore Gemma when Suvadu no longer needs exclusive use of the cluster.
+Human Approval: **Approved by Ramchand 2026-08-16, re-affirmed and instructed to execute
+2026-08-17.**
